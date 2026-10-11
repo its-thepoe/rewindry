@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Rewindry</title>
+    <link rel="stylesheet" href="./viewer.css" />
+    <script src="./viewer.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand" aria-label="Rewindry">rewindry<span class="brand-dot">.</span></div>
+        <div class="topbar-actions">
+          <span id="connection-status" class="connection-status" role="status">Loading history</span>
+          <button id="refresh" class="icon-button" type="button" title="Refresh history" aria-label="Refresh history">↻</button>
+          <button id="code-toggle" class="code-toggle" type="button" aria-expanded="false" aria-controls="code-panel" hidden>Code</button>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <main class="preview-region" id="preview-region">
+          <div class="preview-heading">
+            <div>
+              <p class="eyebrow" id="point-eyebrow">Recorded state</p>
+              <h1 id="point-title">Loading history</h1>
+            </div>
+            <time id="point-time" class="point-time"></time>
+          </div>
+          <div class="visual" id="visual" aria-live="polite">
+            <div class="visual-message" id="visual-message">Loading recorded states…</div>
+            <img id="visual-image" alt="" hidden />
+            <iframe id="live-frame" title="Current working state preview" sandbox="allow-scripts" tabindex="-1" hidden></iframe>
+          </div>
+          <details class="git-history" id="git-history" hidden>
+            <summary><span id="git-summary">Git history</span><progress id="git-progress" aria-label="Indexing Git history" hidden></progress></summary>
+            <p id="git-state" class="git-state"></p>
+            <ol id="git-list" class="git-list"></ol>
+          </details>
+        </main>
+
+        <aside class="code-panel" id="code-panel" aria-label="Historical code" hidden>
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Selected iteration</p>
+              <h2>Code</h2>
+            </div>
+            <button id="code-close" class="icon-button" type="button" title="Close code" aria-label="Close code">×</button>
+          </div>
+          <div class="file-controls">
+            <label for="file-select">File</label>
+            <select id="file-select" disabled><option>Loading files</option></select>
+          </div>
+          <div class="code-toolbar">
+            <div class="mode-switch" role="group" aria-label="Code view">
+              <button id="mode-file" class="mode-button is-active" type="button" aria-pressed="true">File</button>
+              <button id="mode-diff" class="mode-button" type="button" aria-pressed="false">Diff</button>
+            </div>
+            <button id="copy-content" class="copy-button" type="button" disabled>Copy file</button>
+          </div>
+          <pre id="code-content" class="code-content" tabindex="0">Select a recorded iteration to inspect its code.</pre>
+          <p id="code-status" class="code-status" role="status"></p>
+        </aside>
+      </div>
+
+      <nav class="timeline-shell" aria-label="Iteration timeline">
+        <button id="previous" class="transport-button step-button" type="button" title="Previous iteration" aria-label="Previous iteration" disabled>‹</button>
+        <div id="timeline" class="timeline" role="group" aria-label="Recorded iterations and current state"></div>
+        <button id="next" class="transport-button step-button" type="button" title="Next iteration" aria-label="Next iteration" disabled>›</button>
+        <button id="play" class="transport-button play-button" type="button" title="Play history" aria-label="Play history" disabled>▶</button>
+        <span id="timeline-position" class="timeline-position" aria-live="polite"></span>
+      </nav>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "host": "codex-cli",
+  "version": "0.144.4",
+  "events": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "01a1274c-eff6-7ca3-bf04-4fa08f9c3b16",
+      "turn_id": "01a1274d-13e0-7643-95d4-f1814b01c156"
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "01a1274c-eff6-7ca3-bf04-4fa08f9c3b16",
+      "turn_id": "01a1274d-13e0-7643-95d4-f1814b01c156",
+      "stop_hook_active": false
+    }
+  ]
+}

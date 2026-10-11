@@ -524,3 +524,66 @@ These official sources establish available **capabilities**, not guaranteed comp
 
 **Scope of claim:** Rewindry can observe local filesystem changes across editors, but **exactly one visible iteration per completed AI prompt** requires a working, tested turn-boundary adapter for that agent and host. Unsupported sources use explicit `Grouped edits` fallback. This is the product promise to validate in implementation, not proof that the software already exists.
 
+---
+
+## Design and product engineering review addendum — proposed, 10 October 2026
+
+**Status:** Recommendations for decision, not an implemented or automatically approved change to PRD v1.3. The original requirements above are preserved. If a recommendation is accepted, record the decision and update its named acceptance criteria before implementation.
+
+### A. What the user is really trying to recover
+
+The primary job in §3 is to find an earlier UI direction and inspect its code. §4 and §14 explicitly exclude restore while offering Copy. That creates a task gap: a useful design may span JSX, CSS, assets, and configuration, and copying one file at a time may not recover it. A timeline can succeed technically while failing the user's actual task.
+
+**Proposed change:** Keep the first viewer read-only, but test the complete task: “Find the version I preferred and get the code I need to recreate it.” Add a **Copy changed files bundle** or downloadable patch as a candidate only if single-file Copy fails; this would export historical bytes without modifying the working tree. Defer applying the patch in place. Do not call the product a recovery tool until users complete this task.
+
+**Decision test:** Give 5–8 target users a fixture with three visually distinct, multi-file iterations. Record whether they find the preferred frame, identify the right changed files, and recover it in a fresh branch within five minutes. Capture observed failures and decide whether multi-file export is required for MVP.
+
+### B. Validate the visual promise before building the whole platform
+
+§5 measures event accuracy and frame speed but not whether users get enough useful screenshots. §9C and §12 correctly admit that a stopped preview produces permanent source-only history. A visually focused product may therefore deliver many dots without visuals during ordinary agent use.
+
+**Proposed change:** Add a product-level activation measure: the share of changed turns that produce an inspectable visual in the supported reference workflow, plus the share of users who can locate a useful earlier design. These are research measures, not invented release targets. In setup and timeline, explicitly show whether the preview is connected **before** a user expects visual capture. Test whether users will keep the preview running; if not, revisit the visual promise and capture workflow rather than quietly accepting source-only history as the typical result.
+
+### C. Narrow the first public compatibility promise
+
+The PRD combines a persistent OS agent, multiple agent integrations, installer config edits, Git import, visual capture, timeline playback, and code inspection as release blockers (§4, §20). Each is plausible, but their combined integration surface is large before the core value is validated.
+
+**Proposed first supported release:** One declared macOS version, one conventional React/Vite template, one verified paired-boundary agent edition, one route/viewport, local source checkpoints, verified best-effort screenshots, timeline selection, and historical code/diff Copy. The watcher and viewer should still work if the preview is off. Keep one-command setup as the target, but gate its invasive service and config edits on a tested prototype. Make additional agents, Git import, slideshow playback, and broad installer automation follow-on release candidates unless user testing proves one is necessary for the primary recovery task. This is an explicit proposal to revise §4 and §20, not a claim that the current MVP already has that scope.
+
+**Decision test:** After the first vertical slice, have developers use it on a real two-hour UI task. Measure whether they voluntarily revisit a prior iteration and what they try to do next. Promote a deferred feature only when it removes an observed blocker.
+
+### D. Make the timeline answer a question quickly
+
+§8 specifies dots, hover details, playback, and 1,000-item virtualisation, but says little about finding a particular visual direction. Even 30 identical dots are hard to recognize, and imported Git commits can swamp the agent-turn story.
+
+**Proposed change:** Group by work session/day; show a thumbnail, time, changed-file count, and trustworthy provenance on focus/selection; provide previous/next visual and a clear “current working tree” marker. Keep source-only items in navigation with a distinct appearance. If Git import ships, put commits in a separate lane or filter rather than interleaving every commit as an equal dot. Test 30 and 100 mixed entries with keyboard and touch, then choose whether playback adds value over quick selection and comparison.
+
+### E. Distinguish file association from visual fidelity
+
+§12 and §20 use “precise source digest” language. Matching watched files before and after capture does not prove that Vite served the newest compiled modules, that the page rendered without an error, or that remote data, local storage, fonts, time, and animations produced the expected state.
+
+**Proposed change:** Use two visible claims: **Source recorded** when manifest bytes are intact, and **Visual recorded from a ready preview** only when the preview confirms the intended workspace and build generation, the page is ready, and the source remains stable. Present the image as an observed development rendering, with route, viewport, capture time, and known dynamic-data limitations. Do not use “exact historical UI” as an unqualified claim. A missing image is preferable to a misleading one.
+
+### F. Make privacy an installation choice users can understand
+
+§17 acknowledges secret and personal-data risk, while setup automatically creates a broad local history store and screenshots. File-name excludes cannot detect secrets inside ordinary source or private data visible in the app.
+
+**Proposed change:** Before baseline capture, show the exact included roots, excluded paths, storage location, and configured preview URL; let users exclude paths and disable screenshots without losing source capture. Default to no network upload and no persisted browser login state as already specified. Show disk usage and a one-step pause control in the viewer. Test setup with a repo containing a nested app, generated files, symlinks, and intentionally sensitive fixture content to ensure the preflight explains what will be saved.
+
+### G. Resolve the provenance edge cases in user language
+
+The distinction between `Manual iteration` and `Grouped edits` is honest but may be too subtle for a new user (§8–11). A turn can also fail after leaving a meaningful new source state, while the main timeline hides it (§9F).
+
+**Proposed change:** Use a short explanation beside each badge: “Agent turn confirmed,” “Changes grouped after inactivity; author unknown,” or “Agent stopped before completion.” Provide a separate, discoverable “Unfinished changes” area only if users need to inspect failed-turn states; never merge these into confirmed-turn counts. Test whether users can correctly explain what each badge means without reading documentation.
+
+### Decisions to settle before calling the PRD implementation-ready
+
+| Priority | Decision | Evidence needed |
+| --- | --- | --- |
+| P0 | Is review + single-file Copy sufficient, or is multi-file export necessary? | Recovery-task user test in A |
+| P0 | What is the first supported host/agent/framework combination? | Real paired-hook and screenshot prototype |
+| P0 | What level of visual fidelity can the UI honestly promise? | HMR/build-generation and dynamic-page fixtures |
+| P1 | Is preview availability common enough for a visual-first default? | Two-hour real workflow observation |
+| P1 | Which features follow the first release: Git import, playback, more agents, broader install automation? | Task failures and adoption signal, not feature completeness alone |
+
+**Cross-document action:** The technical and implementation addenda below spell out the engineering changes and the order for resolving these decisions. The original numbered acceptance criteria remain historical requirements until the scope decision is made.

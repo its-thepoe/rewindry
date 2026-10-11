@@ -539,3 +539,71 @@ Map all 25 product acceptance criteria in PRD v1.3 to named test cases and attac
 - Git worktree reference (future work; not historical execution in MVP): https://git-scm.com/docs/git-worktree
 
 **Final implementation rule:** preserve accuracy above coverage. A source-only or `Grouped edits` checkpoint is an acceptable honest result; an incorrectly labelled completed agent turn or mismatched historical screenshot is not.
+
+---
+
+## Design and product engineering review addendum — proposed, 10 October 2026
+
+**Status:** Engineering changes to investigate before treating the spec above as fixed. The existing design is preserved; accepted changes need a recorded decision and corresponding tests.
+
+### 1. Define what a checkpoint covers
+
+The default include list in §12 omits common files that change rendered output, including `index.html`, Vite and PostCSS/Tailwind configuration, local workspace packages, and assets outside `public/`. It includes lockfiles that may be large and rarely relevant to a UI iteration. A digest over this incomplete set can remain equal while the browser output changes.
+
+**Proposal:** At setup, resolve the selected Vite app root and enumerate its initial included files. Start with source, public assets, HTML entry, and build/style configuration under that app; let the user review additions and exclusions. Record the include-policy version and an `excluded_or_untracked_inputs` flag in every manifest. Treat dependency, environment, and network inputs as outside the digest unless explicitly captured. Test a change to each input class and require either a changed digest or a visible fidelity limitation. Keep `.rewindry/`, VCS internals, generated output, credentials, and symlinks escaping the root excluded.
+
+### 2. Give each workspace a stable identity
+
+§3 locates a repo, §7 distinguishes worktrees, and §12 stores `workspace.root = "."`, but the identity rule for a monorepo app, linked worktree, moved checkout, or second app in one repo is unspecified. Wrong identity can mix events and images from separate previews.
+
+**Proposal:** Store separate canonical IDs for Git common directory, physical checkout root, and selected app root. Bind each hook event, source manifest, Vite preview, and screenshot job to the checkout/app pair. Verify the actual preview handshake against that pair, not just the port. Moving a checkout requires re-registration with an explicit migration path; do not infer identity from a display name or URL. Fixture: two Vite apps in one repo, two linked worktrees, and a dev server on the same port after restart.
+
+### 3. Treat event order and ownership as evidence, not a total order
+
+§5–6 mention `occurredAt`, received time, provisional scopes, and active leases, but do not define a boundary for delayed/replayed hooks, stale active turns, or manual writes just before a start event. Comparing only wall-clock timestamps is vulnerable to delayed delivery and clock differences.
+
+**Proposal:** Persist a monotonic daemon receipt sequence alongside provider event IDs. Use provider turn IDs where verified; otherwise keep the boundary unverified. Define a bounded reorder/settle window and an explicit `ambiguous_boundary` state when a write cannot confidently belong to one turn. A stale lease must close with `unknown` provenance and a capture-gap marker. Test delayed starts, end-before-start delivery, replay after restart, and two simultaneous agents. Never turn these cases into a confirmed checkpoint by guessing ownership.
+
+### 4. Make screenshot provenance stronger and narrower
+
+The pre/post eligible-tree hash in §9 protects against some races but does not prove that the browser actually rendered the intended Vite generation. HMR can lag; compilation can fail; the page can show stale content; runtime data and excluded inputs can change. The current wording “exact checkpoint association” is stronger than this evidence.
+
+**Proposal:** Add a dev-only preview handshake with registered workspace/app ID, route, Vite server instance ID, and a monotonically increasing rebuild generation. After a checkpoint, wait for the generation that includes its observed changes, verify no compile error, navigate in an isolated browser context, and collect an app-ready signal or a bounded page-stability result. Retain the digest checks. Store `capture_evidence` (source digest, generation, server ID, route, viewport, readiness result) and `fidelity_limits` with the image. If any required signal is unavailable, downgrade to `visual_unverified` or source-only; do not imply pixel determinism. Test stale HMR, compile error, dynamic API data, server restart, and changes during capture.
+
+### 5. Isolate source history from preview scripts if code inspection ships
+
+§11 proposes an overlay and a token-protected loopback API. If a bearer token is exposed to JavaScript in the developer's app origin, any script executing there, including dependencies or injected third-party scripts, can use that token to read historical source. Binding to loopback and checking Origin do not distinguish trusted overlay code from untrusted code on the same page.
+
+**Proposal:** The user-confirmed first UI only needs iteration navigation, the visual, and time; it need not expose a source API. If code inspection is added later, keep source and diff rendering in a separate loopback viewer origin with a short-lived, per-workspace capability held there. The injected overlay may show non-sensitive checkpoint status and open the viewer, but must not receive a source-reading token. If an embedded viewer is used, make it a sandboxed cross-origin frame with a narrow `postMessage` protocol that never returns source bytes to the app page. Test that code executing in the preview origin cannot fetch or message its way to historical file contents before exposing Copy in the browser.
+
+### 6. Avoid two authorities for checkpoint commit state
+
+§7–8 propose blob files, manifests, an event JSONL journal, and SQLite. The statement that the index is rebuildable is useful, but the exact commit point and recovery behavior across these stores are unspecified. A crash can otherwise leave a manifest indexed without its objects, or a journal state that republishes a dot.
+
+**Proposal:** Make a single durable checkpoint publication record authoritative. Write/verify blobs and the manifest first, then commit the publication and idempotency key in one SQLite transaction; the UI reads only committed rows. Treat the event journal as replay input, with a recorded sequence high-water mark. On restart, verify reachable objects, discard orphan temp files, and rebuild only from validated manifests. Version every schema change with a migration; migrations must be rerunnable or transactionally rolled back. Fault-inject at each write boundary and assert no duplicate dot and no readable partial checkpoint.
+
+### 7. Resolve the storage quota policy
+
+§12 gives a 2 GiB cap while §7 promises not to delete blobs needed by retained checkpoints. There is no explicit order for what to drop when images consume the quota or source history alone exceeds it.
+
+**Proposal:** Separate source and image budgets. Evict only regenerable thumbnails/cache automatically; require a visible retention policy before deleting recorded images or checkpoints. When source storage reaches its cap, pause new capture and show the exact status rather than silently breaking old manifests. Report estimated daily growth during the beta. Test quota hit while a checkpoint is being committed and while a screenshot is pending.
+
+### 8. Shrink the initial package graph
+
+Nine packages in §2 create cross-package interfaces before the critical event and visual paths are known. For the first vertical slice, use a single workspace with internal modules for CLI, daemon/core/store, Vite/capture, and viewer. Extract independently versioned packages only after a real reuse or distribution need appears. Preserve the documented module boundaries in TypeScript imports and tests. This lowers install and release complexity without changing the product behavior.
+
+### Required spike outputs
+
+| Spike | Pass evidence | If it fails |
+| --- | --- | --- |
+| Eligible-tree coverage | Changing HTML, styles, assets, config, and nested app files is detected or explicitly excluded | Narrow the supported template and label the gap |
+| Agent boundary | Real outer-turn start/end and workspace identity in one edition | Ship grouped provenance or change the supported agent |
+| Preview association | Correct app/generation captured; stale HMR and compile errors rejected | Use source-only checkpoint and revise visual claim |
+| Source isolation, if code inspection ships | Preview-origin script cannot read history | Keep code inspection in standalone viewer only |
+| Crash recovery | Fault injection never publishes duplicate or partial checkpoint | Fix commit protocol before UI work |
+
+### References used for these proposals
+
+- Existing source: §3, §5–9, §11–12, §16–17 above; product addendum A–F.
+- Official [Vite plugin API](https://vite.dev/guide/api-plugin.html) documents dev-server and HTML transform hooks; these hooks alone do not certify what a page rendered.
+- Official [Playwright screenshots guide](https://playwright.dev/docs/screenshots) documents image capture, not application-state determinism.

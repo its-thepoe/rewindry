@@ -261,3 +261,53 @@ A standalone UI spec is optional until there is ambiguity about the bottom-dot t
 - Vite plugin development-only integration: https://vite.dev/guide/api-plugin.html
 
 **Build principle:** an accurate, incomplete visual history is more useful than a confident but inaccurate one. Ship only verified iteration boundaries and visuals; make gaps visible.
+
+---
+
+## Design and product engineering review addendum — proposed, 10 October 2026
+
+**Status:** The minimal timeline behavior is user-confirmed; the delivery-order changes remain proposals. The original milestones remain above for comparison. The first two gates below test the product and technical assumptions before a full implementation commitment.
+
+### Change summary
+
+| Original plan | Proposed change | Reason |
+| --- | --- | --- |
+| M0 is mainly provider and platform feasibility | Add a simple iteration-navigation test and visual-availability study | Technical capture can work while navigation remains confusing or visuals are usually absent |
+| M1 creates all nine packages | Start with internal modules, extract packages when needed | Reduce release and interface overhead before real behavior is proven |
+| M4 automates invasive setup before visual validation | Prototype the full journey in one fixture first; automate the proven path afterward | Avoid hardening installation for a workflow users may not value |
+| M5 accepts source pre/post hashes as visual verification | Require preview identity/build-generation evidence and honest fidelity labels | Hashes alone do not prove which UI the browser rendered |
+| M5 exposes history through overlay/API | Isolate source viewer from preview-origin scripts | Avoid giving the app page a source-reading capability |
+| M6 makes Git import, playback, and code inspection one MVP gate | Defer these unless needed for iteration navigation; keep security/integrity gates mandatory | Protect the lightweight timeline without weakening trust |
+
+### Revised delivery gates
+
+**G0-P — Product proof, before implementation:** Build a clickable or lightweight prototype with 3 visual states. Observe 5–8 design engineers moving to an earlier iteration and back to the current working state. Record whether they understand the sequence without instruction. The UI should show the visual and time, with the live current state last; do not add thumbnails, changed-file counts, provenance choices, lanes, or filters. Exit with a decision on this minimal navigation behavior.
+
+**G0-T — Technical proof, before architecture lock:** In one React/Vite fixture on one declared macOS/Node combination, demonstrate: a real paired outer-turn adapter; 20+ writes with a long pause producing one source checkpoint; HTML/style/asset/config coverage; a dev preview handshake tied to the right workspace and rebuild generation; and a screenshot rejected on stale compile or source change. Do not expose historical source to preview-page scripts. Keep sanitized fixtures and exact version results. If any proof fails, narrow the declared support or change the product claim before M1.
+
+**G1 — Thin vertical slice:** Build the minimal durable event journal, finaliser, source store, one adapter, screenshot worker, and read-only viewer as internal modules. One real turn should create one navigable historical position with, when preview evidence is sufficient, one visual; the live current state remains the final position. A stopped preview should produce a short unavailable state for that historical position. Test atomic publication, restart replay, and per-workspace isolation. This slice may use a developer launch command; it is an engineering demonstration, not the promised public install experience.
+
+**G2 — Supported install:** Turn that proven path into one-command setup with a stable user-level runtime. Show planned config changes before applying them; preserve hooks; test rerun, uninstall, machine restart, moved repo, and permission denial. Default included files and preview URL must be inspectable before baseline capture. Publish an exact support matrix for this path.
+
+**G3 — First public release:** Run the earlier-iteration-to-current navigation task on a real UI project. Require no false confirmed-turn dots, no wrong-source screenshots, no project writes from viewing, and a short unavailable state for visual gaps. If source inspection is added, require that preview-origin scripts cannot read it. Include Git import, extra agent adapters, playback, or code inspection only if the real-project trial shows one is necessary for this navigation task. Record accepted deferrals against the old §2 definition of done so the release claim is honest.
+
+### Concrete work items to insert into the existing plan
+
+1. **Before M0-01:** Write a three-state visual navigation fixture and observation script. Verify that users can move to an earlier visual and return to the live current state without extra controls.
+2. **During M0-01/M0-06:** Test two apps in one repo and two linked worktrees; document checkout/app identity and include-policy coverage. Make a Vite build-generation handshake part of the visual demo.
+3. **During M1-02/M1-05:** Put include-policy version, checkout ID, app ID, and known uncaptured input classes in the manifest. Use one durable checkpoint publication point and a replay high-water mark.
+4. **During M2:** Add delayed/reordered hook, stale lease, sleep/wake, and manual-before-agent boundary fixtures. Assert `ambiguous_boundary` rather than a fabricated confirmed turn.
+5. **If code inspection is added at M5/M6:** Test same-origin preview scripts against the source API. Keep code bytes and credentials only in an isolated loopback viewer origin; overlay receives status and navigation only.
+6. **During M5-03:** Record preview server ID, workspace/app binding, rebuild generation, route, viewport, readiness result, source digest, and known fidelity limits with every image.
+7. **During M6-06:** Define separate source/image budgets and the behavior at quota before implementing retention. Do not silently delete referenced blobs.
+
+### Exit evidence and stop conditions
+
+- Keep the original PRD's 25 acceptance tests as the full-scope reference. Once the first-release scope is chosen, mark each **required now**, **deferred with reason**, or **replaced by a stronger test**. Never report a deferred test as passing.
+- Every declared agent edition needs a real captured event fixture; mocked events prove only the state machine.
+- Every screenshot fixture must record both source association and preview-generation evidence. A source hash by itself is insufficient for the stronger visual claim.
+- A source-reading token reachable by preview-page JavaScript blocks release of the embedded code viewer.
+- If the navigation test fails, first simplify the sequence and current-state behavior; add a control only when the observed failure requires it.
+- If users rarely have an active preview during the target task, revise onboarding and the visual-first promise before broad installation work.
+
+**Document hygiene:** The original headers and §15 refer to `rewindry_mvp_prd_v1_3.md`, `rewindry_technical_spec_mvp_v1.md`, and a lowercase `/docs/...` tree. Those paths do not exist in this repo. The actual files are the three documents in `DOCS/` linked from [the document index](README.md). Use these paths in coding handoffs; update the original references only when a revised edition is approved.
