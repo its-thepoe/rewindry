@@ -28,22 +28,29 @@ try {
   const deadline = Date.now() + 180_000;
   let result = null;
   while (Date.now() < deadline) {
-    const turn = daemon.runtime.store.list().find((checkpoint) => checkpoint.kind === 'agent_turn');
-    if (turn) {
-      const current = readFileSync(absoluteFile, 'utf8');
+    const current = readFileSync(absoluteFile, 'utf8');
+    const turns = daemon.runtime.store.list().filter((checkpoint) => checkpoint.kind === 'agent_turn');
+    for (const turn of turns) {
       const historical = daemon.runtime.store.readFile(turn.id, relativeFile).toString('utf8');
-      result = {
-        turnKey: turn.turnKey,
-        current,
-        historical,
-        diagnostics: daemon.runtime.turns.diagnostics,
-      };
-      if (current === expected && historical === expected) break;
-      result = null;
+      if (current === expected && historical === expected) {
+        result = {
+          turnKey: turn.turnKey,
+          current,
+          historical,
+          diagnostics: daemon.runtime.turns.diagnostics,
+        };
+        break;
+      }
     }
+    if (result) break;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
   }
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(result ?? {
+    checkpointKinds: daemon.runtime.store.list().map((checkpoint) => checkpoint.kind),
+    turnDiagnostics: daemon.runtime.turns.diagnostics,
+    observerDiagnostics: daemon.runtime.observer.diagnostics,
+    current: existsSync(absoluteFile) ? readFileSync(absoluteFile, 'utf8') : null,
+  }, null, 2));
   if (!result) process.exitCode = 1;
 } finally {
   await daemon?.close();

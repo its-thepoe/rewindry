@@ -67,7 +67,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | ID | Status | Work item |
 | --- | --- | --- |
 | M3-01 | 🟢 | Bounded fail-open forwarder and real Codex hook-to-socket-to-daemon edit turn pass |
-| M3-02 | 🟡 | Cursor IDE 3.24.9 paired boundaries and project hook merge/uninstall tests pass; hooks are enabled for this verified edition. Two IDE edit turns completed, including after a workspace reload, but neither yielded a daemon checkpoint; diagnose the missing hook-to-daemon event. |
+| M3-02 | 🟡 | Cursor IDE 3.24.9 paired boundaries and project hook merge/uninstall tests pass; hooks are enabled for this verified edition. The probe now scans every agent-turn checkpoint, but accepting the latest IDE edit still left the fixture unchanged on disk, so edit-to-checkpoint support is unverified. |
 | M3-03 | 🟢 | Claude Code 2.1.296 real paired start/stop hooks and hook-to-daemon edit checkpoint verified; project-local merge/uninstall tests pass; setup auto-installs this edition. |
 | M3-04 | 🟡 | Codex 0.144.4 paired hook, real edit capture and project hook install pass; legacy notify chaining remains unverified |
 | M3-05 | 🟢 | Capability registry verifies Codex CLI 0.144.4, Cursor IDE 3.24.9 and Claude Code 2.1.296; version-selection tests pass. |
@@ -81,7 +81,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M4-01 | 🟢 | Vite/package-manager preflight, no-write dry-run and explicit project/user-service access summary pass |
 | M4-02 | 🟢 | Stable versioned runtime fixture tests and real LaunchAgent bootstrap/restart/uninstall pass |
 | M4-03 | 🟢 | Version 2 registry and real macOS LaunchAgent probe add two roots, survive `kickstart`, route status independently and remove one root without interrupting the other |
-| M4-04 | 🟡 | No-write setup dry-run detects Codex, Cursor IDE (from the macOS app bundle), and Claude Code without login; it reports automatic hooks for all three verified editions. Cursor install discovery is verified, but its real edit-to-checkpoint integration is not. No manual config editing is expected from customers. |
+| M4-04 | 🟡 | No-write setup dry-run detects Codex, Cursor IDE (from the macOS app bundle), and Claude Code without login; it reports automatic hooks for all three verified editions. Cursor install discovery is verified, but accepting the latest IDE edit still did not change the fixture on disk; its edit-to-checkpoint integration is not yet verified. No manual config editing is expected from customers. |
 | M4-05 | 🟢 | TypeScript-parser Vite adapter preserves the original dev command; real Vite E2E proves automatic port registration, captures and exact config restoration; unsupported shapes fall back to viewer |
 | M4-06 | 🟢 | Status, doctor and uninstall tests pass; degraded capture reports errors, version 2 path-index migration/backfill and upgrade rollback pass |
 | M4-07 | 🟡 | Idempotency, upgrade rollback, uninstall, denied-bootstrap fixture and LaunchAgent restart pass; OS sleep/wake, reboot and actual permission denial remain |
@@ -131,7 +131,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: Cursor IDE real edit-to-checkpoint probe, multi-write Claude boundary, sleep/reboot, hosted CI, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks now have real evidence; latest automated checks: 74 unit tests, typecheck, production build, and browser E2E pass. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, multi-write Claude boundary, sleep/reboot, hosted CI, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the edit probe now checks all agent-turn checkpoints, but accepting the latest IDE review still did not alter the fixture on disk. Latest completed automated checks: 74 unit tests, typecheck, production build, and browser E2E pass. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
@@ -150,7 +150,7 @@ Statuses below refer to the numbered criteria in `DOCS/rewindry_mvp_prd.md` sect
 | 9 No-change/failed prompt | 🟡 | Deterministic turn tests pass; real host failed turn pending. |
 | 10 Final tree and turn identity | 🟢 | Real Codex and Claude edits each produced one correctly identified immutable final checkpoint with the exact final source bytes; Codex also matched the Vite PNG. |
 | 11 Truthful unsupported fallback | 🟢 | Status/doctor and adapters reserve confirmed turns for verified paired boundaries. |
-| 12 Separate host validation | 🟡 | Codex CLI 0.144.4, Cursor IDE 3.24.9 lifecycle hooks, and Claude Code 2.1.296 verified; Cursor edit-to-checkpoint validation remains. |
+| 12 Separate host validation | 🟡 | Codex CLI 0.144.4, Cursor IDE 3.24.9 lifecycle hooks, and Claude Code 2.1.296 verified; accepting the Cursor IDE edit still did not update the fixture on disk, so edit-to-checkpoint validation remains. |
 | 13 Multi-file quiet grouping | 🟢 | Deterministic clock and filesystem runtime grouping tests pass. |
 | 14 Separate sessions/active pause | 🟡 | Deterministic 60-second pause and separate-burst tests pass; real 30-second agent pause pending. |
 | 15 Simultaneous attribution | 🟡 | Overlap warning, persistent mixed-tree provenance and no false confirmed checkpoint pass; real simultaneous host test pending. |
