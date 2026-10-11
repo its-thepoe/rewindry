@@ -12,7 +12,7 @@ Last verified: 11 October 2026. These are observed combinations, not promises fo
 | Claude Code 2.1.296 | Verified | Real paired hooks shared `session_id` and `prompt_id`; two consecutive changed prompts produced two checkpoints with exact final bytes, including three separate edits followed by a 30-second in-turn pause. Setup automatically installs hooks for this edition. |
 | Other OS, Node or Vite versions | Unverified | Source capture may work, but persistent setup and visual replay are not claimed. |
 
-Current package status: local build only. `package.json` is private; `npx rewindry@latest setup` is not published yet. Supported setup runs `node dist/cli.js setup` from this checkout after `npm ci && npm run build`.
+Current package status: publish metadata passes `npm publish --dry-run`, and a local `npm exec` tarball smoke test passes from an unrelated project directory. It is not on the public registry yet: `npm whoami` returns 401 on this machine and web login failed, so `npx rewindry@latest setup` cannot resolve until an authorized publisher logs in and publishes a release. Before publishing, complete the remaining release checks. For local use, build this checkout and run its `dist/cli.js setup` from the target project root.
 
 Setup probes installed agent CLI versions without requiring provider sign-in. It automatically merges project hooks only for editions with verified real-host turn boundaries, including Cursor IDE 3.24.9; other detected editions are reported but left unchanged. No manual hook-config editing is expected from users. A host may still require an explicit project-trust approval.
 

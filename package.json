@@ -1,10 +1,28 @@
 {
   "name": "rewindry",
   "version": "0.1.0",
-  "private": true,
+  "description": "Local, immutable checkpoints for visual history of code changes.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/its-thepoe/rewindry.git"
+  },
+  "bugs": {
+    "url": "https://github.com/its-thepoe/rewindry/issues"
+  },
+  "keywords": [
+    "local-first",
+    "code-history",
+    "visual-history",
+    "vite",
+    "developer-tools"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "bin": {
-    "rewindry": "./dist/cli.js"
+    "rewindry": "dist/cli.js"
   },
   "files": [
     "dist"
