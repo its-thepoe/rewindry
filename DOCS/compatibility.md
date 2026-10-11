@@ -9,7 +9,7 @@ Last verified: 11 October 2026. These are observed combinations, not promises fo
 | Codex CLI 0.144.4 | Lifecycle and edit probes verified; hook trust review pending | Real `UserPromptSubmit`/`Stop` shared a turn ID; a Codex edit produced one immutable checkpoint and the correct Vite screenshot. Project hooks still require the user's trust review. |
 | Cursor IDE 3.24.9 | Lifecycle verified; edit capture pending | Real `beforeSubmitPrompt` and `stop` hooks shared `conversation_id` and `generation_id`; sanitized fixture retained. CLI probes are not counted as IDE evidence. A real edit-to-Rewindry-checkpoint probe remains before release. |
 | Cursor Agent 2026.07.23-e383d2b | Unsupported for confirmed turns | No verified paired start/end boundary. |
-| Claude Code 2.1.296 | Verified | Real paired hooks shared `session_id` and `prompt_id`; a real edit flowed through Rewindry to one correct checkpoint. Sanitized fixture retained. Setup automatically installs hooks for this edition. |
+| Claude Code 2.1.296 | Verified | Real paired hooks shared `session_id` and `prompt_id`; three separate file edits followed by a 30-second pause flowed through Rewindry into one checkpoint with exact final bytes. Setup automatically installs hooks for this edition. |
 | Other OS, Node or Vite versions | Unverified | Source capture may work, but persistent setup and visual replay are not claimed. |
 
 Current package status: local build only. `package.json` is private; `npx rewindry@latest setup` is not published yet. Supported setup runs `node dist/cli.js setup` from this checkout after `npm ci && npm run build`.

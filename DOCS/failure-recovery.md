@@ -42,5 +42,5 @@ This removes Rewindry's registered integration for the selected workspace, not i
 
 - Machine sleep/wake and reboot behavior has not been verified on the supported host yet.
 - Real OS permission denial and real disk exhaustion have not been induced; current evidence uses deterministic failure injection.
-- Cursor and Claude Code lifecycle capture is not enabled until their real-host boundary probes pass.
+- Claude Code 2.1.296 hooks are enabled after real paired-boundary and edit probes. Cursor IDE 3.24.9 paired lifecycle hooks are verified, but edit-to-checkpoint capture remains unverified; do not treat hook installation as proof that a Cursor edit was captured.
 - A moved workspace requires explicit `--rebind-moved`; Rewindry does not guess that two paths are the same project.
