@@ -19,10 +19,10 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | Multi-workspace registry and isolated daemon routing pass; install regression follow-up M4-08 is under verification; OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟢 done | Overlay and viewer use the 6px segmented stepper; browser E2E verifies desktop/mobile, keyboard, playback and 1,000-point history after sizing changes. |
-| M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas, hosted macOS CI and public npm `0.1.0` install smoke pass; pushed `0.1.1` integration fixes await npm's one-time web authorization; broad host/platform matrix and external observations remain. |
+| M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas and hosted macOS CI pass; public npm `rewindry@0.1.1` is verified as `latest`; broad host/platform matrix and external observations remain. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
-| Revised G3 first public release | 🔴 blocked | Public npm `0.1.0` is live; the product gate still needs external real-project navigation observations and full release validation. |
+| Revised G3 first public release | 🔴 blocked | Public npm `0.1.1` is live; the product gate still needs external real-project navigation observations and full release validation. |
 
 ## M0 — Feasibility spikes
 
@@ -113,7 +113,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-06 | 🟢 | 1,000-point viewer browser check passes; 512 MiB default source-blob budget pauses new checkpoints without deleting history, separate image limits remain; quota test passes |
 | M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; hosted macOS CI now passes after adding the example dependency install. Broader host/platform matrix and user recovery study remain. |
 | M6-08 | 🟢 | `rewindry@0.1.0` published publicly with `latest`; npm registry metadata and `npx rewindry@latest setup --dry-run` from another project both verified. |
-| M6-09 | 🔴 | Patch `0.1.1` is pushed and package dry-run passes. npm web login completed successfully in Dia, but publishing still returns `EOTP` and requires an account-owner one-time password for the write. No OTP was requested or stored. |
+| M6-09 | 🟢 | `rewindry@0.1.1` published after publish-specific web security-key approval; `npm view` confirms version and `latest` are both `0.1.1`. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work
