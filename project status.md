@@ -40,7 +40,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 
 | ID | Status | Work item |
 | --- | --- | --- |
-| M1-01 | 🟡 | TypeScript project and macOS CI workflow added; hosted CI/lint are the remaining checks |
+| M1-01 | 🟡 | TypeScript project and macOS CI workflow added; recent hosted E2E runs failed because npm 11 skipped unapproved `esbuild`/`fsevents` install scripts. Pinned approvals are added; clean `npm ci` under npm 11.20.0 and browser E2E pass locally; hosted rerun pending. |
 | M1-02 | 🟢 | Versioned event validation, canonical-root workspace ID, turn IDs and checkpoint kinds pass; new manifests identify checkout (stable over move), configured app, policy version and uncaptured input classes |
 | M1-03 | 🟢 | Eligible file policy and symlink/path protection tests pass |
 | M1-04 | 🟢 | Observer source-write/self-exclusion and missed-event rescan reconciliation pass; duplicate watched events signal once per changed tree |
@@ -110,7 +110,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-04 | 🟢 | Source-only visual state, separate Git history band and visible indexing-progress state pass viewer browser E2E |
 | M6-05 | 🟡 | Scoped security review found and fixed journal symlink traversal; core security surfaces reviewed, while report coverage remains partial for docs, fixtures, and example app |
 | M6-06 | 🟢 | 1,000-point viewer browser check passes; 512 MiB default source-blob budget pauses new checkpoints without deleting history, separate image limits remain; quota test passes |
-| M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; real host/platform matrix, hosted CI, and user recovery study remain |
+| M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; recent hosted E2E failure traced to npm 11 blocked install scripts and corrected with pinned approvals. Clean npm 11.20 install and local E2E pass; hosted rerun, broader host/platform matrix, and user recovery study remain. |
 | M6-08 | 🟡 | Packed bin has executable mode/shebang; isolated tarball `setup --dry-run` works. Public npm release remains gated by external validation. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
@@ -131,7 +131,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, multi-write Claude boundary, sleep/reboot, hosted CI, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the edit probe now checks all agent-turn checkpoints, but accepting the latest IDE review still did not alter the fixture on disk. Latest completed automated checks: 74 unit tests, typecheck, production build, and browser E2E pass. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, multi-write Claude boundary, sleep/reboot, hosted CI confirmation, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the edit probe now checks all agent-turn checkpoints, but accepting the latest IDE review still did not alter the fixture on disk. CI's npm 11 install-script regression is fixed locally and awaiting hosted rerun. Latest completed automated checks: 74 unit tests, typecheck, production build, clean npm 11.20 install, and browser E2E pass. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
