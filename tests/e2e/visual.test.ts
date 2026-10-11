@@ -23,7 +23,12 @@ async function port(): Promise<number> {
   return address.port;
 }
 
-async function until<T>(read: () => Promise<T> | T, accept: (value: T) => boolean, label: string): Promise<T> {
+async function until<T>(
+  read: () => Promise<T> | T,
+  accept: (value: T) => boolean,
+  label: string,
+  details = () => '',
+): Promise<T> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     try {
@@ -32,7 +37,8 @@ async function until<T>(read: () => Promise<T> | T, accept: (value: T) => boolea
     } catch { /* The dev server may still be starting. */ }
     await new Promise((done) => setTimeout(done, 100));
   }
-  throw new Error(`Timed out waiting for ${label}`);
+  const extraDetails = details();
+  throw new Error(`Timed out waiting for ${label}${extraDetails ? `\n${extraDetails}` : ''}`);
 }
 
 test('live turns and one offline retry keep distinct historical screenshots', { timeout: 60_000 }, async () => {
@@ -58,12 +64,27 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
   ]) execFileSync('git', ['-C', root, ...args]);
   const vitePort = await port();
   const viteBin = join(example, 'node_modules', 'vite', 'bin', 'vite.js');
-  let devServer = spawn(process.execPath, [viteBin, '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'], { cwd: root, stdio: 'ignore' });
+  let viteOutput = '';
+  const startVite = () => {
+    const child = spawn(
+      process.execPath,
+      [viteBin, '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
+      { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    for (const stream of [child.stdout, child.stderr]) {
+      stream?.on('data', (chunk: Buffer) => {
+        viteOutput = `${viteOutput}${chunk.toString()}`.slice(-8_000);
+      });
+    }
+    return child;
+  };
+  let devServer = startVite();
   const previewUrl = `http://127.0.0.1:${vitePort}/`;
+  const viteDiagnostics = () => `Vite exit=${devServer.exitCode ?? 'running'} signal=${devServer.signalCode ?? 'none'}\n${viteOutput}`;
   let runtime: RewindryRuntime | undefined;
   let viewer: ViewerServer | undefined;
   try {
-    await until(async () => (await fetch(`${previewUrl}__rewindry/preview`)).ok, Boolean, 'Vite preview');
+    await until(async () => (await fetch(`${previewUrl}__rewindry/preview`)).ok, Boolean, 'Vite preview', viteDiagnostics);
     const registered = await until(() => {
       const config = JSON.parse(readFileSync(join(root, '.rewindry', 'config.json'), 'utf8')) as { preview?: { url?: string; appId?: string } };
       return config.preview;
@@ -206,8 +227,9 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
     assert.ok(offline);
     assert.equal(runtime.captureResults.get(offline.id)?.status, 'source_only');
     assert.equal(runtime.captureResults.get(offline.id)?.attempts, 1);
-    devServer = spawn(process.execPath, [viteBin, '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'], { cwd: root, stdio: 'ignore' });
-    await until(async () => (await fetch(`${previewUrl}__rewindry/preview`)).ok, Boolean, 'restarted Vite preview');
+    viteOutput = '';
+    devServer = startVite();
+    await until(async () => (await fetch(`${previewUrl}__rewindry/preview`)).ok, Boolean, 'restarted Vite preview', viteDiagnostics);
     const retried = await until(() => JSON.parse(readFileSync(join(root, '.rewindry', 'previews', offline.id, 'primary.json'), 'utf8')) as {
       status: string; attempts: number;
     }, (record) => record.status === 'captured', 'automatic source-only retry');
