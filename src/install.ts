@@ -177,7 +177,7 @@ function copyRuntimeDependencies(dependencies: Map<string, string>, destination:
 
 async function verifyDaemon(dataDir: string, root: string): Promise<void> {
   const workspaceId = createHash('sha256').update(root).digest('hex');
-  const deadline = Date.now() + 3_000;
+  const deadline = Date.now() + 30_000;
   let lastState = 'no status response';
   while (Date.now() < deadline) {
     const response = await queryDaemon(daemonSocketPath(dataDir), { action: 'status', workspaceId }, 200).catch((error: unknown) => {

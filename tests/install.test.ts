@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { LocalDaemon } from '../src/daemon.ts';
 import { installWorkspace, uninstallWorkspace, type ServiceController } from '../src/install.ts';
 import { WorkspaceStore } from '../src/store.ts';
 
@@ -53,6 +54,45 @@ test('setup copies a stable runtime, registers once, and uninstall preserves his
     assert.equal(readFileSync(join(root, '.rewindry', 'history-marker'), 'utf8'), 'keep');
     assert.equal(await uninstallWorkspace(root, options), false);
   } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test('setup waits for a LaunchAgent that takes longer than three seconds to publish its socket', async () => {
+  const temp = mkdtempSync(join(tmpdir(), 'rewindry-slow-launchagent-'));
+  const root = join(temp, 'project');
+  const packageRoot = join(temp, 'package');
+  const dataDir = join(temp, 'data');
+  const launchAgentsDir = join(temp, 'agents');
+  const sourceCli = join(packageRoot, 'dist', 'cli.js');
+  let daemon: LocalDaemon | undefined;
+  let startupTimer: NodeJS.Timeout | undefined;
+  const service: ServiceController = {
+    bootstrap: () => {
+      startupTimer = setTimeout(() => {
+        daemon = new LocalDaemon(root, { dataDir });
+        void daemon.start();
+      }, 3_100);
+    },
+    bootout: () => {
+      if (startupTimer) clearTimeout(startupTimer);
+      void daemon?.close();
+    },
+  };
+  try {
+    mkdirSync(root);
+    mkdirSync(join(packageRoot, 'dist'), { recursive: true });
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({ name: 'rewindry', version: '0.1.2' }));
+    writeFileSync(sourceCli, 'console.log(1)');
+    const installed = await installWorkspace(root, {
+      dataDir, launchAgentsDir, sourceCli, service, platform: 'darwin',
+    });
+    assert.equal(installed.status, 'installed');
+    assert.ok(daemon);
+    await uninstallWorkspace(root, { dataDir, launchAgentsDir, service, platform: 'darwin' });
+  } finally {
+    if (startupTimer) clearTimeout(startupTimer);
+    await daemon?.close();
+    rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test('setup registers multiple workspaces and uninstall removes only the selected root', async () => {
