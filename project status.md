@@ -17,9 +17,9 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M1 / G1 Foundation and storage | 🟢 done | Immutable store, multi-root isolation, process-kill recovery, moved-repo rebind and injected watcher-error reconciliation pass; hosted macOS CI passes clean root/example installs, typecheck, 74 tests, and visual E2E. |
 | M2 / G2 Turn manager | 🟡 in progress | Synthetic boundary suite and two consecutive real Claude changed turns pass, including a three-file/30-second-pause turn; 100-write/60-second host stress and cross-host edge cases remain. |
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
-| M4 / G4 Installation and daemon | 🟡 in progress | Multi-workspace registry and isolated daemon routing pass; OS sleep/wake, reboot and real permission-denial checks remain. |
+| M4 / G4 Installation and daemon | 🟡 in progress | Multi-workspace registry and isolated daemon routing pass; install regression follow-up M4-08 is under verification; OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟢 done | Overlay and viewer use the 6px segmented stepper; browser E2E verifies desktop/mobile, keyboard, playback and 1,000-point history after sizing changes. |
-| M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas, hosted macOS CI and public npm `0.1.0` install smoke pass; broad host/platform matrix and external observations remain. |
+| M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas, hosted macOS CI and public npm `0.1.0` install smoke pass; `0.1.1` integration fixes are packaged and pending publish; broad host/platform matrix and external observations remain. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
 | Revised G3 first public release | 🔴 blocked | Public npm `0.1.0` is live; the product gate still needs external real-project navigation observations and full release validation. |
@@ -82,9 +82,10 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M4-02 | 🟢 | Stable versioned runtime fixture tests and real LaunchAgent bootstrap/restart/uninstall pass |
 | M4-03 | 🟢 | Version 2 registry and real macOS LaunchAgent probe add two roots, survive `kickstart`, route status independently and remove one root without interrupting the other |
 | M4-04 | 🟡 | No-write setup dry-run detects Codex, Cursor IDE (from the macOS app bundle), and Claude Code without login; it reports automatic hooks for all three verified editions. Cursor install discovery is verified, but accepting the latest IDE edit still did not change the fixture on disk; its edit-to-checkpoint integration is not yet verified. No manual config editing is expected from customers. |
-| M4-05 | 🟢 | TypeScript-parser Vite adapter preserves the original dev command; real Vite E2E proves automatic port registration, captures and exact config restoration; unsupported shapes fall back to viewer |
+| M4-05 | 🟢 | TypeScript-parser Vite adapter preserves the original dev command; real Vite E2E proves automatic port registration, captures and exact config restoration; unsupported shapes fall back to viewer; setup recognizes a project-owned preview plugin without rewriting it |
 | M4-06 | 🟢 | Status, doctor and uninstall tests pass; degraded capture reports errors, version 2 path-index migration/backfill and upgrade rollback pass |
 | M4-07 | 🟡 | Idempotency, upgrade rollback, uninstall, denied-bootstrap fixture and LaunchAgent restart pass; OS sleep/wake, reboot and actual permission denial remain |
+| M4-08 | 🟢 | Customer setup exposed shared hook-registration collision across workspaces and false Vite unsupported result for an already-installed project plugin; workspace-scoped registrations, legacy single-workspace migration, moved-workspace rebind and project-owned Vite plugin recognition pass regression tests. All 76 unit tests, typecheck and browser/Vite E2E pass. |
 
 ## M5 — Visual capture and timeline
 
@@ -112,6 +113,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-06 | 🟢 | 1,000-point viewer browser check passes; 512 MiB default source-blob budget pauses new checkpoints without deleting history, separate image limits remain; quota test passes |
 | M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; hosted macOS CI now passes after adding the example dependency install. Broader host/platform matrix and user recovery study remain. |
 | M6-08 | 🟢 | `rewindry@0.1.0` published publicly with `latest`; npm registry metadata and `npx rewindry@latest setup --dry-run` from another project both verified. |
+| M6-09 | 🟡 | Patch `0.1.1` contains the multi-workspace hook and existing Vite-plugin setup fixes; tests and package dry-run pass, publication is pending. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work

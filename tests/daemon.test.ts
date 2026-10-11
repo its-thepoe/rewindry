@@ -159,7 +159,7 @@ test('agent detection is login-free and only verified editions receive automatic
     codex: 'codex-cli 0.144.4',
     cursor: 'Cursor 3.24.9',
     claude: '2.1.296 (Claude Code)',
-  }[command] ?? null));
+  }[command] ?? null), () => null);
   assert.deepEqual(versions, {
     'codex-cli': '0.144.4',
     'cursor-ide': '3.24.9',

@@ -46,6 +46,16 @@ test('Vite integration leaves unsupported or edited configs untouched', () => {
   } finally { editable.cleanup(); }
 });
 
+test('Vite integration recognizes a preview plugin already owned by the project', () => {
+  const original = `import { defineConfig } from 'vite';\nimport { rewindryPreviewPlugin } from '../../src/vite-plugin.ts';\nexport default defineConfig({ plugins: [rewindryPreviewPlugin('fixture')] });\n`;
+  const { root, config, cleanup } = fixture(original);
+  try {
+    assert.equal(installViteIntegration(root, '/stable/runtime'), 'already_installed');
+    assert.equal(readFileSync(config, 'utf8'), original);
+    assert.equal(uninstallViteIntegration(root), false);
+  } finally { cleanup(); }
+});
+
 test('explicit moved-workspace Vite rebind restores reversible metadata', () => {
   const temp = mkdtempSync(join(tmpdir(), 'rewindry-vite-moved-'));
   const root = join(temp, 'project');

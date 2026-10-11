@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 
 type ConfigKind = 'cursor' | 'claude-code' | 'codex-cli';
@@ -16,6 +16,18 @@ type JsonObject = Record<string, unknown>;
 
 function hash(value: Buffer | string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function registrationPath(dataDir: string, root: string): string {
+  return join(dataDir, 'hook-registrations', `${hash(root).slice(0, 24)}.json`);
+}
+
+function legacyRegistrationPath(dataDir: string): string {
+  return join(dataDir, 'hooks.json');
+}
+
+function canonicalizeRoot(root: string): string {
+  return existsSync(root) ? realpathSync(root) : join(realpathSync(dirname(root)), basename(root));
 }
 
 function quote(value: string): string {
@@ -105,8 +117,24 @@ export function installHookConfigs(
   previousRoot?: string,
 ): void {
   const canonicalRoot = realpathSync(root);
-  const registrationPath = join(dataDir, 'hooks.json');
-  if (existsSync(registrationPath)) uninstallHookConfigs(canonicalRoot, dataDir, previousRoot);
+  const canonicalPreviousRoot = previousRoot ? canonicalizeRoot(previousRoot) : undefined;
+  const currentRegistration = registrationPath(dataDir, canonicalRoot);
+  if (existsSync(currentRegistration)) uninstallHookConfigs(canonicalRoot, dataDir, previousRoot);
+  else {
+    const previousRegistration = canonicalPreviousRoot
+      ? registrationPath(dataDir, canonicalPreviousRoot)
+      : null;
+    const legacyPath = legacyRegistrationPath(dataDir);
+    const existingPath = previousRegistration && existsSync(previousRegistration)
+      ? previousRegistration
+      : legacyPath;
+    if (existsSync(existingPath)) {
+      const legacy = JSON.parse(readFileSync(existingPath, 'utf8')) as HookRegistration;
+      const legacyRootMatches = legacy.root === canonicalRoot || legacy.root === canonicalPreviousRoot;
+      if (legacyRootMatches) uninstallHookConfigs(canonicalRoot, dataDir, previousRoot);
+      else if (!existsSync(legacy.root)) throw new Error('Hook registration does not match this workspace');
+    }
+  }
   const supported: { kind: ConfigKind; path: string; hooks: string[] }[] = [
     { kind: 'cursor', path: join(canonicalRoot, '.cursor', 'hooks.json'), hooks: ['beforeSubmitPrompt', 'stop'] },
     { kind: 'claude-code', path: join(canonicalRoot, '.claude', 'settings.local.json'), hooks: ['UserPromptSubmit', 'Stop', 'StopFailure'] },
@@ -132,7 +160,7 @@ export function installHookConfigs(
       written.push(item.record);
     }
     const registration: HookRegistration = { schemaVersion: 1, root: canonicalRoot, entries: prepared.map(({ record }) => record) };
-    writeConfig(registrationPath, JSON.stringify(registration), 0o600);
+    writeConfig(currentRegistration, JSON.stringify(registration), 0o600);
   } catch (error) {
     for (const record of written.reverse()) restoreOriginal(record);
     throw error;
@@ -148,13 +176,33 @@ function restoreOriginal(record: HookRecord): void {
 }
 
 export function uninstallHookConfigs(root: string, dataDir: string, previousRoot?: string): boolean {
-  const registrationPath = join(dataDir, 'hooks.json');
-  if (!existsSync(registrationPath)) return false;
-  const registration = JSON.parse(readFileSync(registrationPath, 'utf8')) as HookRegistration;
   const canonicalRoot = realpathSync(root);
-  const canonicalPreviousRoot = previousRoot && !existsSync(previousRoot)
-    ? join(realpathSync(dirname(previousRoot)), basename(previousRoot))
-    : undefined;
+  const canonicalPreviousRoot = previousRoot ? canonicalizeRoot(previousRoot) : undefined;
+  const scopedPath = registrationPath(dataDir, canonicalRoot);
+  let path = scopedPath;
+  if (!existsSync(path) && canonicalPreviousRoot) {
+    const previousRegistration = registrationPath(dataDir, canonicalPreviousRoot);
+    if (existsSync(previousRegistration)) path = previousRegistration;
+  }
+  if (!existsSync(path)) {
+    path = legacyRegistrationPath(dataDir);
+    if (!existsSync(path)) {
+      const registrationsDir = join(dataDir, 'hook-registrations');
+      if (existsSync(registrationsDir) && lstatSync(registrationsDir).isDirectory()) {
+        const hasStaleRegistration = readdirSync(registrationsDir).filter((name) => name.endsWith('.json'))
+          .some((name) => {
+            const item = JSON.parse(readFileSync(join(registrationsDir, name), 'utf8')) as HookRegistration;
+            return item.schemaVersion === 1 && typeof item.root === 'string' &&
+              item.root !== canonicalRoot && !existsSync(item.root);
+          });
+        if (hasStaleRegistration) throw new Error('Hook registration does not match this workspace');
+      }
+      return false;
+    }
+  }
+  const registration = JSON.parse(readFileSync(path, 'utf8')) as HookRegistration;
+  if (path === legacyRegistrationPath(dataDir) && registration.root !== canonicalRoot &&
+      registration.root !== canonicalPreviousRoot && existsSync(registration.root)) return false;
   if (registration.schemaVersion !== 1 || !Array.isArray(registration.entries) ||
       (registration.root !== canonicalRoot &&
       registration.root !== canonicalPreviousRoot)) {
@@ -180,6 +228,6 @@ export function uninstallHookConfigs(root: string, dataDir: string, previousRoot
       writeConfig(record.path, JSON.stringify(value, null, 2) + '\n', statSync(record.path).mode & 0o777);
     }
   }
-  unlinkSync(registrationPath);
+  unlinkSync(path);
   return true;
 }

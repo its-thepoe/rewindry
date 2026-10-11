@@ -53,6 +53,24 @@ function objectConfig(source: ts.SourceFile): ts.ObjectLiteralExpression | null 
   return ts.isObjectLiteralExpression(expression) ? expression : null;
 }
 
+function hasExistingPlugin(source: ts.SourceFile): boolean {
+  const importsPlugin = source.statements.some((statement) => ts.isImportDeclaration(statement) &&
+    ts.isStringLiteral(statement.moduleSpecifier) &&
+    statement.importClause?.namedBindings !== undefined &&
+    ts.isNamedImports(statement.importClause.namedBindings) &&
+    statement.importClause.namedBindings.elements.some((element) =>
+      (element.propertyName?.text ?? element.name.text) === 'rewindryPreviewPlugin'));
+  if (!importsPlugin) return false;
+  let called = false;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+        node.expression.text === 'rewindryPreviewPlugin') called = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return called;
+}
+
 function addPlugin(sourceText: string, configPath: string, pluginPath: string, appId: string): string | null {
   const parsed = ts.transpileModule(sourceText, { fileName: configPath, reportDiagnostics: true });
   if (parsed.diagnostics?.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)) return null;
@@ -84,7 +102,11 @@ export function installViteIntegration(root: string, runtimePath: string, previo
     throw new Error('Vite config changed after Rewindry setup; integration was preserved');
   }
   const original = prior?.original ?? current;
-  if (!prior && /rewindryPreviewPlugin|rewindry\/vite-plugin/.test(original)) return 'unsupported';
+  if (!prior) {
+    const source = ts.createSourceFile(configPath, original, ts.ScriptTarget.Latest, true);
+    if (hasExistingPlugin(source)) return 'already_installed';
+    if (/rewindryPreviewPlugin|rewindry\/vite-plugin/.test(original)) return 'unsupported';
+  }
   const appId = `rewindry-${digest(canonicalRoot).slice(0, 12)}`;
   const pluginPath = join(runtimePath, 'dist', 'vite-plugin.js');
   const installed = addPlugin(original, configPath, pluginPath, appId);

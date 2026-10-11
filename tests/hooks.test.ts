@@ -116,7 +116,25 @@ test('hook install rolls back the first config when a later config cannot be wri
     symlinkSync(outside, join(root, '.claude'));
     assert.throws(() => installHookConfigs(root, '/stable/cli.js', '/stable/node', dataDir), /symlink/);
     assert.equal(readFileSync(cursorPath, 'utf8'), original);
-    assert.equal(existsSync(join(dataDir, 'hooks.json')), false);
+    assert.equal(existsSync(join(dataDir, 'hook-registrations')), false);
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+});
+
+test('hook registrations remain isolated across workspaces sharing one data directory', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'rewindry-hooks-multi-'));
+  const first = join(temp, 'first');
+  const second = join(temp, 'second');
+  const dataDir = join(temp, 'data');
+  try {
+    mkdirSync(first);
+    mkdirSync(second);
+    installHookConfigs(first, '/stable/cli.js', '/stable/node', dataDir, ['codex-cli']);
+    installHookConfigs(second, '/stable/cli.js', '/stable/node', dataDir, ['codex-cli']);
+    assert.match(readFileSync(join(first, '.codex', 'hooks.json'), 'utf8'), /UserPromptSubmit/);
+    assert.match(readFileSync(join(second, '.codex', 'hooks.json'), 'utf8'), /UserPromptSubmit/);
+    assert.equal(uninstallHookConfigs(second, dataDir), true);
+    assert.equal(existsSync(join(first, '.codex', 'hooks.json')), true);
+    assert.equal(uninstallHookConfigs(first, dataDir), true);
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });
 
