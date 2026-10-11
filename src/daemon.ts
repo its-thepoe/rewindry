@@ -182,6 +182,8 @@ export class LocalDaemon {
   private handleConnection(socket: Socket): void {
     let input = '';
     let inputBytes = 0;
+    // A timed-out local client may close before this response is written.
+    socket.on('error', () => {});
     socket.setTimeout(1_000, () => socket.destroy());
     socket.on('data', (chunk: Buffer) => {
       inputBytes += chunk.length;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -66,6 +67,30 @@ test('Unix socket ingests events and reports active source capture', async () =>
     cleanup();
   }
   assert.equal(existsSync(daemon.socketPath), false);
+});
+
+test('a disconnected status client does not stop the daemon', async () => {
+  const { root, dataDir, cleanup } = fixture();
+  const daemon = new LocalDaemon(root, { dataDir });
+  try {
+    await daemon.start();
+    await new Promise<void>((resolve, reject) => {
+      const client = createConnection(daemon.socketPath);
+      client.once('error', reject);
+      client.once('connect', () => {
+        client.write('{"action":"status"}\n', () => {
+          client.destroy();
+          resolve();
+        });
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const response = await queryDaemon(daemon.socketPath, { action: 'status' });
+    assert.equal(response.ok, true);
+  } finally {
+    await daemon.close();
+    cleanup();
+  }
 });
 
 test('one daemon isolates status and agent events across registered workspaces', async () => {
