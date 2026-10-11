@@ -24,10 +24,76 @@ export type SetupPlan = {
   serviceMetadata: string;
   serviceRegistration: string;
   hookConfiguration: string;
+  detectedAgents: { provider: string; version: string; status: 'supported' | 'not_verified' }[];
   candidateHookFiles: string[];
   permissions: string[];
   changesApplied: false;
 };
+
+type ManagedProvider = 'codex-cli' | 'cursor-ide' | 'claude-code';
+type HookConfigProvider = 'codex-cli' | 'cursor' | 'claude-code';
+type VersionRunner = (command: string) => string | null;
+type CursorAppVersionReader = () => string | null;
+
+const providerCommands: { provider: ManagedProvider; command: string; pattern: RegExp }[] = [
+  { provider: 'codex-cli', command: 'codex', pattern: /^codex-cli\s+(\S+)$/ },
+  { provider: 'cursor-ide', command: 'cursor', pattern: /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/ },
+  { provider: 'claude-code', command: 'claude', pattern: /(?:^|\s)(\d+\.\d+\.\d+)(?:\s|$)/ },
+];
+
+function runVersionCommand(command: string): string | null {
+  try {
+    return execFileSync(command, ['--version'], { encoding: 'utf8', timeout: 1_000 }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function readCursorAppVersion(): string | null {
+  if (process.platform !== 'darwin') return null;
+  const infoFiles = [
+    '/Applications/Cursor.app/Contents/Info.plist',
+    join(homedir(), 'Applications', 'Cursor.app', 'Contents', 'Info.plist'),
+  ];
+  for (const infoFile of infoFiles) {
+    if (!existsSync(infoFile)) continue;
+    try {
+      return execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', infoFile], {
+        encoding: 'utf8', timeout: 1_000,
+      }).trim();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function detectAgentVersions(
+  run: VersionRunner = runVersionCommand,
+  cursorAppVersion: CursorAppVersionReader = readCursorAppVersion,
+): Partial<Record<ManagedProvider, string>> {
+  const detected: Partial<Record<ManagedProvider, string>> = {};
+  for (const { provider, command, pattern } of providerCommands) {
+    const output = run(command) ?? (provider === 'cursor-ide' ? cursorAppVersion() : null);
+    const version = output && pattern.exec(output)?.[1];
+    if (version) detected[provider] = version;
+  }
+  return detected;
+}
+
+export function verifiedHookProviders(versions: Partial<Record<ManagedProvider, string>>): HookConfigProvider[] {
+  const providers: HookConfigProvider[] = [];
+  if (versions['codex-cli'] && PROVIDER_CAPABILITIES['codex-cli'].verifiedVersions.includes(versions['codex-cli'])) {
+    providers.push('codex-cli');
+  }
+  if (versions['cursor-ide'] && PROVIDER_CAPABILITIES['cursor-ide'].verifiedVersions.includes(versions['cursor-ide'])) {
+    providers.push('cursor');
+  }
+  if (versions['claude-code'] && PROVIDER_CAPABILITIES['claude-code'].verifiedVersions.includes(versions['claude-code'])) {
+    providers.push('claude-code');
+  }
+  return providers;
+}
 
 export function setupPlan(root: string, dataDir = userDataDir(), withHooks = false): SetupPlan {
   const canonicalRoot = realpathSync(root);
@@ -44,6 +110,13 @@ export function setupPlan(root: string, dataDir = userDataDir(), withHooks = fal
     : existsSync(join(canonicalRoot, 'yarn.lock')) ? 'yarn'
     : existsSync(join(canonicalRoot, 'bun.lock')) || existsSync(join(canonicalRoot, 'bun.lockb')) ? 'bun'
     : existsSync(join(canonicalRoot, 'package-lock.json')) ? 'npm' : 'unknown';
+  const detectedVersions = detectAgentVersions();
+  const hookProviders = verifiedHookProviders(detectedVersions);
+  const detectedAgents = Object.entries(detectedVersions).map(([provider, version]) => ({
+    provider,
+    version: version!,
+    status: hookProviders.includes(provider === 'cursor-ide' ? 'cursor' : provider as HookConfigProvider) ? 'supported' as const : 'not_verified' as const,
+  }));
   return {
     root: canonicalRoot,
     framework,
@@ -51,29 +124,23 @@ export function setupPlan(root: string, dataDir = userDataDir(), withHooks = fal
     sourceStore: join(canonicalRoot, '.rewindry'),
     serviceMetadata: join(dataDir, 'daemon.json'),
     serviceRegistration: join(homedir(), 'Library', 'LaunchAgents', 'dev.rewindry.daemon.plist'),
-    hookConfiguration: verifiedCodexVersion() ? 'Codex CLI hooks available; trust review required' : 'requires provider and version probe',
+    hookConfiguration: hookProviders.length
+      ? `Automatic hooks for verified providers: ${hookProviders.join(', ')}`
+      : detectedAgents.length ? 'Detected agent(s), but none have a verified hook edition' : 'No supported agent CLI detected',
+    detectedAgents,
     candidateHookFiles: [
-      ...(verifiedCodexVersion() ? [join(canonicalRoot, '.codex', 'hooks.json')] : []),
-      ...(withHooks ? [join(canonicalRoot, '.cursor', 'hooks.json'), join(canonicalRoot, '.claude', 'settings.local.json')] : []),
+      ...(hookProviders.includes('codex-cli') ? [join(canonicalRoot, '.codex', 'hooks.json')] : []),
+      ...(hookProviders.includes('cursor') || withHooks ? [join(canonicalRoot, '.cursor', 'hooks.json')] : []),
+      ...(hookProviders.includes('claude-code') || withHooks ? [join(canonicalRoot, '.claude', 'settings.local.json')] : []),
     ],
     permissions: [
       `Create local history in ${join(canonicalRoot, '.rewindry')}`,
       `Register a user-level LaunchAgent in ${join(homedir(), 'Library', 'LaunchAgents')}`,
       ...(framework === 'vite' ? ['Edit the project Vite config reversibly'] : []),
-      ...(verifiedCodexVersion() ? ['Merge project Codex hooks; Codex trust review is required'] : []),
+      ...hookProviders.map((provider) => `Merge ${provider} project hooks`),
     ],
     changesApplied: false,
   };
-}
-
-function verifiedCodexVersion(): string | null {
-  try {
-    const output = execFileSync('codex', ['--version'], { encoding: 'utf8', timeout: 1_000 }).trim();
-    const version = /^codex-cli\s+(\S+)$/.exec(output)?.[1];
-    return version && PROVIDER_CAPABILITIES['codex-cli'].verifiedVersions.includes(version) ? version : null;
-  } catch {
-    return null;
-  }
 }
 
 function option(args: string[], name: string, fallback: string): string {
@@ -120,6 +187,8 @@ export async function runCli(args: string[], io: CliIo = defaultIo): Promise<num
         io.error('Cursor and Claude Code hooks are not installed: neither edition has passed a real turn-boundary probe. Verified Codex hooks are installed by normal setup.');
         return 1;
       }
+      const detectedVersions = detectAgentVersions();
+      const hookProviders = verifiedHookProviders(detectedVersions);
       const previousRoot = rest.includes('--rebind-moved') ? registeredWorkspace(dataDir) ?? undefined : undefined;
       for (const permission of setupPlan(root, dataDir).permissions) io.out(`Setup access: ${permission}`);
       const installed = await installWorkspace(root, {
@@ -137,18 +206,23 @@ export async function runCli(args: string[], io: CliIo = defaultIo): Promise<num
           io.error(`Vite preview integration unavailable: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      const codexVersion = verifiedCodexVersion();
-      if (codexVersion) {
+      if (hookProviders.length) {
         try {
           installHookConfigs(realpathSync(root), join(installed.runtimePath, 'dist', 'cli.js'),
-            realpathSync(process.execPath), dataDir, ['codex-cli'], previousRoot);
-          io.out(`Codex CLI ${codexVersion} hooks installed; review and trust them in Codex /hooks before agent capture becomes active`);
+            realpathSync(process.execPath), dataDir, hookProviders, previousRoot);
+          io.out(`Hooks installed automatically for verified providers: ${hookProviders.join(', ')}. Review any host project-trust prompt before capture begins.`);
         } catch (error) {
-          io.error(`Codex hook integration unavailable: ${error instanceof Error ? error.message : String(error)}`);
+          io.error(`Agent hook integration unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      for (const agent of Object.entries(detectedVersions)) {
+        const [provider, version] = agent;
+        if (!hookProviders.includes(provider === 'cursor-ide' ? 'cursor' : provider as HookConfigProvider)) {
+          io.out(`${provider} ${version} detected; hook integration is not enabled until this edition passes real-host validation`);
         }
       }
       io.out(`Workspace registration: ${registeredWorkspaces(dataDir).length} workspace${registeredWorkspaces(dataDir).length === 1 ? '' : 's'} registered`);
-      io.out(codexVersion ? 'Agent boundary capture: Codex CLI 0.144.4 verified, hook trust pending' : 'Agent boundary capture: unverified');
+      io.out(hookProviders.length ? `Agent boundary capture: ${hookProviders.join(', ')} verified; host trust may be required` : 'Agent boundary capture: unverified');
       io.out(previewConfigured(realpathSync(root)) ? 'Visual capture: configured, verification pending' : 'Visual capture: unavailable');
       return 0;
     }

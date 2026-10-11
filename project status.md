@@ -6,15 +6,17 @@ Legend: 🟢 done · 🟡 in progress · 🔴 blocked · ⚪ not started. A mile
 
 Maintenance: update affected rows at the start and end of every implementation turn; never promote a row without test or observed-host evidence.
 
+Customer setup target: one Rewindry setup command discovers supported installed agents and merges their hooks automatically. Rewindry must not collect provider credentials or bypass a host's explicit project-trust prompt. Current implementation supports automatic Codex CLI 0.144.4 and Claude Code 2.1.296 hook installation; Cursor remains disabled until real-host validation passes. Provider sign-in requested below is for maintainer testing, not a requirement for every Rewindry user.
+
 ## At a glance
 
 | Phase | Status | Exit gate / current evidence |
 | --- | --- | --- |
 | G0-P Product proof (proposed addendum) | 🔴 blocked | Five to eight external design-engineer observations require participants; no results yet. |
-| M0 / G0-T Feasibility | 🟡 in progress | React/Vite, Codex 0.144.4 and a two-workspace macOS LaunchAgent restart are verified; authenticated Cursor/Claude probes remain blocked. |
+| M0 / G0-T Feasibility | 🟡 in progress | React/Vite, Codex 0.144.4, and Claude Code 2.1.296 are verified; setup detects Cursor without login, but its real probe awaits workspace trust. |
 | M1 / G1 Foundation and storage | 🟡 in progress | Immutable store, multi-root isolation, process-kill recovery, moved-repo rebind and injected watcher-error reconciliation pass; hosted CI remains. |
 | M2 / G2 Turn manager | 🟡 in progress | Synthetic G2 boundary suite passes, including stale/delayed hooks and failed boundary splits. Queue bounds and overlap metadata pass; real-host boundary coverage remains. |
-| M3 / G3 Agent adapters | 🟡 in progress | Codex CLI 0.144.4 is verified, with hook trust still user-mediated; Cursor is not logged in and Claude Code CLI is not installed. |
+| M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs Codex/Claude hooks automatically. Cursor remains disabled pending a real probe; maintainer sign-in is validation-only. |
 | M4 / G4 Installation and daemon | 🟡 in progress | Multi-workspace registry and isolated daemon routing pass; OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟢 done | Overlay and viewer use the 6px segmented stepper; browser E2E verifies desktop/mobile, keyboard, playback and 1,000-point history after sizing changes. |
 | M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas and local tarball smoke pass; public release validation and external observations remain. |
@@ -27,12 +29,12 @@ Maintenance: update affected rows at the start and end of every implementation t
 | ID | Status | Evidence / next step |
 | --- | --- | --- |
 | M0-01 Fixture React/Vite and Git repo, eligible files | 🟢 done | React/Vite browser fixture and disposable two-commit/shallow Git fixture pass; source include policy is tested. |
-| M0-02 Cursor paired outer-turn probe | 🟡 in progress | Cursor IDE 3.24.9 and Cursor Agent 2026.07.23-e383d2b found; real event fixture needed. |
-| M0-03 Claude Code lifecycle probe | 🟡 in progress | Claude desktop 2.31226.1 found; real event fixture needed. |
+| M0-02 Cursor paired outer-turn probe | 🟡 in progress | Cursor IDE 3.24.9 / Agent 2026.07.23-e383d2b is signed in; the real probe awaits explicit Cursor workspace-trust approval (the prompt was quit). |
+| M0-03 Claude Code lifecycle probe | 🟢 done | Real Claude Code 2.1.296 `UserPromptSubmit` and `Stop` shared session/prompt IDs; sanitized fixture retained. |
 | M0-04 Codex CLI start/end probe | 🟢 done | Local Codex 0.144.4 emitted `UserPromptSubmit` and `Stop` with the same session/turn IDs in a read-only disposable turn; sanitized fixture retained. |
 | M0-05 macOS LaunchAgent proof | 🟡 in progress | Disposable user-level service bootstrapped, reported baseline, survived `launchctl kickstart -k` with a new PID and one preserved checkpoint, then uninstalled; permission-denied probe pending. |
 | M0-06 Vite dev overlay and screenshot proof | 🟢 done | Vite 8.3.4 serves dev-only overlay, excludes it from production, waits for request idle, captures correct final tree and rejects digest/generation races and compiler errors. Existing-tab HMR state remains a stated fidelity limit. |
-| M0-07 Supported version matrix | 🟢 done | `DOCS/compatibility.md` records verified macOS/Node, React/Vite and Codex editions and labels Cursor/Claude and other environments unverified. |
+| M0-07 Supported version matrix | 🟢 done | `DOCS/compatibility.md` records verified macOS/Node, React/Vite, Codex and Claude editions and labels Cursor and other environments unverified. |
 
 ## M1 — Repository foundation and immutable storage
 
@@ -52,23 +54,23 @@ Maintenance: update affected rows at the start and end of every implementation t
 | ID | Status | Work item |
 | --- | --- | --- |
 | M2-01 | 🟢 | Synchronous event ingest has no pending queue; 32 concurrent socket clients and 64 KiB per-message cap pass, with journal dedupe/validation tests |
-| M2-02 | 🟡 | Long-pause turn test passes; state coverage incomplete |
+| M2-02 | 🟢 | Acceptance gate now exercises 100 writes across 50 operations, a 60-second pause and self-correction; no checkpoint is published until the paired finish settles |
 | M2-03 | 🟢 | Settling, actual multi-file write, no-change and consecutive-turn tests pass |
 | M2-04 | 🟢 | Fake-clock multi-save/separate-burst tests pass |
 | M2-05 | 🟢 | Long-pause suppression and pending unattributed-write transition pass tests |
 | M2-06 | 🟢 | Duplicate, failure, stale timeout, delayed-write and finish-before-start cases pass tests |
 | M2-07 | 🟢 | Overlap never claims a confirmed turn; grouped checkpoint persists `overlap` provenance and both timeline feeds label mixed activity |
-| M2-08 | 🟡 | Fake-clock and filesystem suites include reordered finish, stale lease, delayed write, manual-before-agent and failed settle-boundary split; real-host and sleep/wake matrix pending |
+| M2-08 | 🟡 | Fake-clock and filesystem suites include reordered finish, stale lease, delayed write, manual-before-agent and failed settle-boundary split; one real Claude edit produced a confirmed checkpoint; long-pause host and sleep/wake matrix pending |
 
 ## M3 — Agent adapters
 
 | ID | Status | Work item |
 | --- | --- | --- |
 | M3-01 | 🟢 | Bounded fail-open forwarder and real Codex hook-to-socket-to-daemon edit turn pass |
-| M3-02 | 🔴 | Project-local Cursor hook merge/uninstall tests pass; real probe blocked because Cursor Agent CLI reports not logged in |
-| M3-03 | 🔴 | Project-local Claude hook merge/uninstall tests pass; real probe blocked because Claude Code CLI is not installed |
+| M3-02 | 🔴 | Project-local Cursor hook merge/uninstall tests pass; real probe awaits Cursor's explicit workspace-trust approval. Integration remains disabled for customers until verified. |
+| M3-03 | 🟢 | Claude Code 2.1.296 real paired start/stop hooks and hook-to-daemon edit checkpoint verified; project-local merge/uninstall tests pass; setup auto-installs this edition. |
 | M3-04 | 🟡 | Codex 0.144.4 paired hook, real edit capture and project hook install pass; legacy notify chaining remains unverified |
-| M3-05 | 🟡 | Capability registry names Codex CLI 0.144.4 as the only verified edit/turn edition; Cursor/Claude have fixture-only adapters |
+| M3-05 | 🟡 | Capability registry verifies Codex CLI 0.144.4 and Claude Code 2.1.296; Cursor remains fixture-only and disabled |
 | M3-06 | 🟢 | Linked Git worktrees retain separate source history and app provenance; one daemon routes events and reports status independently for multiple roots |
 | M3-07 | 🟡 | JSON merge/uninstall preserves existing handlers in fixture tests; real user configs not exercised |
 
@@ -79,7 +81,7 @@ Maintenance: update affected rows at the start and end of every implementation t
 | M4-01 | 🟢 | Vite/package-manager preflight, no-write dry-run and explicit project/user-service access summary pass |
 | M4-02 | 🟢 | Stable versioned runtime fixture tests and real LaunchAgent bootstrap/restart/uninstall pass |
 | M4-03 | 🟢 | Version 2 registry and real macOS LaunchAgent probe add two roots, survive `kickstart`, route status independently and remove one root without interrupting the other |
-| M4-04 | 🟡 | Normal setup installs verified Codex 0.144.4 project hooks with merge/recovery and combined CLI E2E; Codex trust review remains user-mediated. Cursor/Claude remain disabled. |
+| M4-04 | 🟡 | Normal setup detects Codex, Cursor IDE (including the macOS app bundle), and Claude Code without login, then automatically merges hooks for verified editions: Codex 0.144.4 and Claude Code 2.1.296. Host project-trust approval remains host-controlled. No manual config editing is expected from customers. |
 | M4-05 | 🟢 | TypeScript-parser Vite adapter preserves the original dev command; real Vite E2E proves automatic port registration, captures and exact config restoration; unsupported shapes fall back to viewer |
 | M4-06 | 🟢 | Status, doctor and uninstall tests pass; degraded capture reports errors, version 2 path-index migration/backfill and upgrade rollback pass |
 | M4-07 | 🟡 | Idempotency, upgrade rollback, uninstall, denied-bootstrap fixture and LaunchAgent restart pass; OS sleep/wake, reboot and actual permission denial remain |
@@ -129,7 +131,7 @@ Maintenance: update affected rows at the start and end of every implementation t
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: Codex hook trust review, authenticated Cursor/Claude probes, sleep/reboot, hosted CI, external recovery observations, and release validation. Unit suite: 70 passing; typecheck, production build and browser E2E pass. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: host trust review, Cursor real probe, multi-write Claude boundary, sleep/reboot, hosted CI, external recovery observations, and release validation. Unit suite: 72 passing; typecheck, production build and browser E2E pass. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
@@ -142,13 +144,13 @@ Statuses below refer to the numbered criteria in `DOCS/rewindry_mvp_prd.md` sect
 | 3 Machine restart/sleep | 🟡 | Service kickstart preserved history; machine sleep/reboot not exercised. |
 | 4 Unsupported OS/denied permission | 🟡 | Unsupported setup guard, degraded daemon health and denied-bootstrap rollback test pass; real OS permission denial pending. |
 | 5 Repeat setup/uninstall | 🟡 | Fixture idempotency and real setup/uninstall pass; real repeat cycle pending. |
-| 6 Long multi-write agent turn | 🟡 | Synthetic 20-write/60-second case passes; real Codex long multi-write turn pending. |
+| 6 Long multi-write agent turn | 🟡 | Synthetic 100-write/60-second-pause case and one real Claude edit pass; real 100-write or long-pause provider turn pending. |
 | 7 Consecutive changed turns | 🟡 | Synthetic and browser two-turn runs pass; real agent two-prompt run pending. |
 | 8 Repeated/subagent callbacks | 🟡 | Adapter and turn fixtures pass; real host callbacks pending. |
 | 9 No-change/failed prompt | 🟡 | Deterministic turn tests pass; real host failed turn pending. |
-| 10 Final tree and turn identity | 🟢 | Real Codex edit produced one correctly identified immutable final checkpoint and matching Vite PNG. |
+| 10 Final tree and turn identity | 🟢 | Real Codex and Claude edits each produced one correctly identified immutable final checkpoint with the exact final source bytes; Codex also matched the Vite PNG. |
 | 11 Truthful unsupported fallback | 🟢 | Status/doctor and adapters reserve confirmed turns for verified paired boundaries. |
-| 12 Separate host validation | 🟡 | Codex CLI 0.144.4 verified; Cursor and Claude Code remain unverified and disabled by setup. |
+| 12 Separate host validation | 🟡 | Codex CLI 0.144.4 and Claude Code 2.1.296 verified; Cursor remains unverified and disabled by setup. |
 | 13 Multi-file quiet grouping | 🟢 | Deterministic clock and filesystem runtime grouping tests pass. |
 | 14 Separate sessions/active pause | 🟡 | Deterministic 60-second pause and separate-burst tests pass; real 30-second agent pause pending. |
 | 15 Simultaneous attribution | 🟡 | Overlap warning, persistent mixed-tree provenance and no false confirmed checkpoint pass; real simultaneous host test pending. |

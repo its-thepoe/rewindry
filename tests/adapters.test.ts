@@ -39,6 +39,20 @@ test('Claude prompt_id pairs a turn; missing ID and continued Stop are not confi
   assert.equal(normalizeHook('claude-code', 'UserPromptSubmit', { session_id: 'session-1', hook_event_name: 'UserPromptSubmit' }, 'workspace-1')?.boundaryQuality, 'unverified');
 });
 
+test('Claude Code 2.1.296 real hook fixture pairs the outer prompt boundary', () => {
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/claude-code-2.1.296.json', import.meta.url), 'utf8')) as {
+    version: string; events: Record<string, unknown>[];
+  };
+  const start = normalizeHook('claude-code', 'UserPromptSubmit', fixture.events[0], 'workspace-1');
+  const stop = normalizeHook('claude-code', 'Stop', fixture.events[1], 'workspace-1');
+  assert.equal(fixture.version, '2.1.296');
+  assert.equal(start?.boundaryQuality, 'paired');
+  assert.equal(stop?.boundaryQuality, 'paired');
+  assert.equal(start?.hostSessionId, stop?.hostSessionId);
+  assert.equal(start?.hostTurnId, stop?.hostTurnId);
+  assert.deepEqual(PROVIDER_CAPABILITIES['claude-code'].verifiedVersions, ['2.1.296']);
+});
+
 test('Codex real 0.144.4 hook fixture pairs one outer turn; legacy notifications remain end-only', () => {
   const fixture = JSON.parse(readFileSync(new URL('./fixtures/codex-cli-0.144.4.json', import.meta.url), 'utf8')) as {
     events: Record<string, unknown>[];

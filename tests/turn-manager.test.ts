@@ -59,10 +59,11 @@ function setup() {
   return { manager, clock, snapshots, journal };
 }
 
-test('20 writes with a 60-second pause yield one checkpoint only after completion', () => {
+test('100 writes across 50 operations with a 60-second pause yield one checkpoint only after completion', () => {
   const { manager, clock, snapshots } = setup();
   manager.ingest(event('outer_turn_started', 'start'));
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 50; i++) {
+    manager.onWrite();
     manager.onWrite();
     clock.advance(500);
   }

@@ -10,7 +10,7 @@ export type ProviderCapability = {
   verifiedVersions: readonly string[];
 };
 
-// Published hook schemas show possible boundaries; no host edition has passed the required real E2E probe yet.
+// Hook schemas describe possible boundaries; verifiedVersions lists editions with observed real-hook evidence.
 export const PROVIDER_CAPABILITIES: Readonly<Record<'cursor-ide' | 'cursor-cli' | 'claude-code' | 'codex-cli', ProviderCapability>> = {
   'cursor-ide': {
     host: 'Cursor IDE', startHook: 'beforeSubmitPrompt', finishHooks: ['stop'],
@@ -22,7 +22,7 @@ export const PROVIDER_CAPABILITIES: Readonly<Record<'cursor-ide' | 'cursor-cli' 
   },
   'claude-code': {
     host: 'Claude Code', startHook: 'UserPromptSubmit', finishHooks: ['Stop', 'StopFailure'],
-    boundary: 'candidate_paired', verifiedVersions: [],
+    boundary: 'candidate_paired', verifiedVersions: ['2.1.296'],
   },
   'codex-cli': {
     host: 'Codex CLI', startHook: 'UserPromptSubmit', finishHooks: ['Stop'],

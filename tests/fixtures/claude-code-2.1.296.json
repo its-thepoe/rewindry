@@ -1,0 +1,17 @@
+{
+  "provider": "claude-code",
+  "version": "2.1.296",
+  "events": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "session-fixture",
+      "prompt_id": "prompt-fixture"
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "session-fixture",
+      "prompt_id": "prompt-fixture",
+      "stop_hook_active": false
+    }
+  ]
+}

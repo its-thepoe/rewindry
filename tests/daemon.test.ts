@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, statSync, unl
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { runCli, setupPlan } from '../src/cli.ts';
+import { detectAgentVersions, runCli, setupPlan, verifiedHookProviders } from '../src/cli.ts';
 import { LocalDaemon, queryDaemon, sendHookEvent } from '../src/daemon.ts';
 import { RewindryRuntime } from '../src/runtime.ts';
 import type { AgentEvent } from '../src/turn-manager.ts';
@@ -152,6 +152,23 @@ test('status and doctor show truthful capabilities; dry-run setup writes nothing
       assert.ok(output.some((line) => line.includes('Visual capture: unavailable')));
     } finally { await daemon.close(); }
   } finally { cleanup(); }
+});
+
+test('agent detection is login-free and only verified editions receive automatic hooks', () => {
+  const versions = detectAgentVersions((command) => ({
+    codex: 'codex-cli 0.144.4',
+    cursor: 'Cursor 3.24.9',
+    claude: '2.1.296 (Claude Code)',
+  }[command] ?? null));
+  assert.deepEqual(versions, {
+    'codex-cli': '0.144.4',
+    'cursor-ide': '3.24.9',
+    'claude-code': '2.1.296',
+  });
+  assert.deepEqual(verifiedHookProviders(versions), ['codex-cli', 'claude-code']);
+  assert.deepEqual(verifiedHookProviders({ 'codex-cli': '0.144.5' }), []);
+  assert.equal(detectAgentVersions((command) => command === 'claude' ? '2.1.296 (Claude Code)' : null,
+    () => '3.24.9')['cursor-ide'], '3.24.9');
 });
 
 test('preview configuration reports pending verification, not a recorded visual', async () => {
