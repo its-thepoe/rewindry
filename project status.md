@@ -19,7 +19,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | `0.1.3` setup and status report active capture in `case-files`; daemon now isolates dropped-client socket errors and the disconnect regression passes. OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟡 in progress | Published `0.1.3` now registers the Vite IPv6 loopback URL; the real project's preview endpoint responds. A captured visual from the restarted project is still unverified. |
-| M6 / G6 Code, Git and release | 🟡 in progress | Public npm `rewindry@0.1.3` is verified as `latest`; broad host/platform matrix and external observations remain. |
+| M6 / G6 Code, Git and release | 🟡 in progress | Public npm `rewindry@0.1.3` is verified as `latest`; release `0.1.4` for daemon disconnect hardening is in progress. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
 | Revised G3 first public release | 🔴 blocked | Public npm `0.1.3` is live; the product gate still needs external real-project navigation observations and broader release validation. |
@@ -119,6 +119,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-09 | 🟢 | `rewindry@0.1.1` published after publish-specific web security-key approval; `npm view` confirms version and `latest` are both `0.1.1`. |
 | M6-10 | 🟢 | `rewindry@0.1.2` release setup succeeded and `status` reported active capture in the reported `case-files` project; superseded by `0.1.3`. |
 | M6-11 | 🟢 | `0.1.3` is published as npm `latest`; IPv4/IPv6 regression tests and visual E2E pass, and the reported project restarted with the expected IPv6 preview URL. |
+| M6-12 | 🟡 | Daemon per-connection socket error handling and its disconnect regression are pushed to `main`; `0.1.4` release checks and npm publication are in progress. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work
