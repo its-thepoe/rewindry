@@ -14,12 +14,12 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | --- | --- | --- |
 | G0-P Product proof (proposed addendum) | 🔴 blocked | Five to eight external design-engineer observations require participants; no results yet. |
 | M0 / G0-T Feasibility | 🟡 in progress | React/Vite, Codex 0.144.4, Claude Code 2.1.296, and Cursor IDE 3.24.9 lifecycle boundaries are verified; Cursor edit-to-checkpoint evidence remains. |
-| M1 / G1 Foundation and storage | 🟡 in progress | Immutable store, multi-root isolation, process-kill recovery, moved-repo rebind and injected watcher-error reconciliation pass; hosted CI remains. |
+| M1 / G1 Foundation and storage | 🟢 done | Immutable store, multi-root isolation, process-kill recovery, moved-repo rebind and injected watcher-error reconciliation pass; hosted macOS CI passes clean root/example installs, typecheck, 74 tests, and visual E2E. |
 | M2 / G2 Turn manager | 🟡 in progress | Synthetic G2 boundary suite passes, including stale/delayed hooks and failed boundary splits. Queue bounds and overlap metadata pass; real-host boundary coverage remains. |
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | Multi-workspace registry and isolated daemon routing pass; OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟢 done | Overlay and viewer use the 6px segmented stepper; browser E2E verifies desktop/mobile, keyboard, playback and 1,000-point history after sizing changes. |
-| M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas and local tarball smoke pass; public release validation and external observations remain. |
+| M6 / G6 Code, Git and release | 🟡 in progress | Code/diff/copy, Git progress, quotas, hosted macOS CI and local tarball smoke pass; broad host/platform matrix, public release validation and external observations remain. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
 | Revised G3 first public release | 🔴 blocked | External real-project navigation observations and full release validation are missing. |
@@ -40,7 +40,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 
 | ID | Status | Work item |
 | --- | --- | --- |
-| M1-01 | 🟡 | TypeScript project and macOS CI workflow added; hosted E2E failure traced to CI not installing `examples/vite-react` dependencies (`vite.js` missing). CI now installs both lockfiles and pins the example's `fsevents` script approval; clean-install E2E and hosted confirmation pending. |
+| M1-01 | 🟢 | TypeScript project and macOS CI workflow pass on hosted macOS: pinned root/example install-script approvals, clean installs for both lockfiles, typecheck, 74 tests, and visual E2E all pass. Root cause was CI omitting `examples/vite-react` dependencies. |
 | M1-02 | 🟢 | Versioned event validation, canonical-root workspace ID, turn IDs and checkpoint kinds pass; new manifests identify checkout (stable over move), configured app, policy version and uncaptured input classes |
 | M1-03 | 🟢 | Eligible file policy and symlink/path protection tests pass |
 | M1-04 | 🟢 | Observer source-write/self-exclusion and missed-event rescan reconciliation pass; duplicate watched events signal once per changed tree |
@@ -60,15 +60,15 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M2-05 | 🟢 | Long-pause suppression and pending unattributed-write transition pass tests |
 | M2-06 | 🟢 | Duplicate, failure, stale timeout, delayed-write and finish-before-start cases pass tests |
 | M2-07 | 🟢 | Overlap never claims a confirmed turn; grouped checkpoint persists `overlap` provenance and both timeline feeds label mixed activity |
-| M2-08 | 🟡 | Fake-clock and filesystem suites include reordered finish, stale lease, delayed write, manual-before-agent and failed settle-boundary split; one real Claude edit produced a confirmed checkpoint; long-pause host and sleep/wake matrix pending |
+| M2-08 | 🟡 | Fake-clock and filesystem suites include reordered finish, stale lease, delayed write, manual-before-agent and failed settle-boundary split; Claude Code 2.1.296 edit probe reconfirmed one exact final-tree checkpoint on 11 Oct 2026; real multi-write/long-pause host turn and sleep/wake matrix pending |
 
 ## M3 — Agent adapters
 
 | ID | Status | Work item |
 | --- | --- | --- |
 | M3-01 | 🟢 | Bounded fail-open forwarder and real Codex hook-to-socket-to-daemon edit turn pass |
-| M3-02 | 🟡 | Cursor IDE 3.24.9 paired boundaries and project hook merge/uninstall tests pass; hooks are enabled for this verified edition. The probe now scans every agent-turn checkpoint, but accepting the latest IDE edit still left the fixture unchanged on disk, so edit-to-checkpoint support is unverified. |
-| M3-03 | 🟢 | Claude Code 2.1.296 real paired start/stop hooks and hook-to-daemon edit checkpoint verified; project-local merge/uninstall tests pass; setup auto-installs this edition. |
+| M3-02 | 🟡 | Cursor IDE 3.24.9 paired boundaries and project hook merge/uninstall tests pass; hooks are enabled for this verified edition. Latest real IDE probe on 11 Oct 2026 ended with the fixture unchanged and only an `unattributed_group`, so edit-to-checkpoint support is unverified. |
+| M3-03 | 🟢 | Claude Code 2.1.296 real paired start/stop hooks and hook-to-daemon edit checkpoint verified; edit probe reconfirmed exactly one checkpoint with exact final source bytes on 11 Oct 2026; project-local merge/uninstall tests pass; setup auto-installs this edition. |
 | M3-04 | 🟡 | Codex 0.144.4 paired hook, real edit capture and project hook install pass; legacy notify chaining remains unverified |
 | M3-05 | 🟢 | Capability registry verifies Codex CLI 0.144.4, Cursor IDE 3.24.9 and Claude Code 2.1.296; version-selection tests pass. |
 | M3-06 | 🟢 | Linked Git worktrees retain separate source history and app provenance; one daemon routes events and reports status independently for multiple roots |
@@ -110,7 +110,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-04 | 🟢 | Source-only visual state, separate Git history band and visible indexing-progress state pass viewer browser E2E |
 | M6-05 | 🟡 | Scoped security review found and fixed journal symlink traversal; core security surfaces reviewed, while report coverage remains partial for docs, fixtures, and example app |
 | M6-06 | 🟢 | 1,000-point viewer browser check passes; 512 MiB default source-blob budget pauses new checkpoints without deleting history, separate image limits remain; quota test passes |
-| M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; hosted E2E root cause was missing example dependencies, now added to CI's install/cache path. Pinned npm 11 install-script approvals and bounded Vite diagnostics are in place; clean-install E2E and hosted rerun, broader host/platform matrix, and user recovery study remain. |
+| M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; hosted macOS CI now passes after adding the example dependency install. Broader host/platform matrix and user recovery study remain. |
 | M6-08 | 🟡 | Packed bin has executable mode/shebang; isolated tarball `setup --dry-run` works. Public npm release remains gated by external validation. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
@@ -131,7 +131,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, multi-write Claude boundary, sleep/reboot, hosted CI confirmation, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the edit probe now checks all agent-turn checkpoints, but accepting the latest IDE review still did not alter the fixture on disk. CI now installs the example's own lockfile after a runner log confirmed its Vite binary was missing; clean-install E2E and hosted confirmation are pending. Latest completed automated checks: 74 unit tests, typecheck, production build, clean npm 11.20 root install, and browser E2E pass locally. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, multi-write Claude boundary, sleep/reboot, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 edit-to-checkpoint was reconfirmed with one exact final-tree checkpoint. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
