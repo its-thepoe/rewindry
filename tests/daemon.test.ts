@@ -165,7 +165,7 @@ test('agent detection is login-free and only verified editions receive automatic
     'cursor-ide': '3.24.9',
     'claude-code': '2.1.296',
   });
-  assert.deepEqual(verifiedHookProviders(versions), ['codex-cli', 'claude-code']);
+  assert.deepEqual(verifiedHookProviders(versions), ['codex-cli', 'cursor', 'claude-code']);
   assert.deepEqual(verifiedHookProviders({ 'codex-cli': '0.144.5' }), []);
   assert.equal(detectAgentVersions((command) => command === 'claude' ? '2.1.296 (Claude Code)' : null,
     () => '3.24.9')['cursor-ide'], '3.24.9');

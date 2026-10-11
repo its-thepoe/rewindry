@@ -24,6 +24,21 @@ test('Cursor correlates only matching outer generation IDs and preserves failure
   assert.equal(JSON.stringify(start).includes('Never store this prompt'), false);
 });
 
+test('Cursor IDE 3.24.9 real lifecycle fixture pairs conversation and generation IDs', () => {
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/cursor-ide-3.24.9.json', import.meta.url), 'utf8')) as {
+    version: string; events: Record<string, unknown>[];
+  };
+  const start = normalizeHook('cursor', 'beforeSubmitPrompt', fixture.events[0], 'workspace-1');
+  const stop = normalizeHook('cursor', 'stop', fixture.events[1], 'workspace-1');
+  assert.equal(fixture.version, '3.24.9');
+  assert.equal(start?.boundaryQuality, 'paired');
+  assert.equal(stop?.boundaryQuality, 'paired');
+  assert.equal(stop?.status, 'completed');
+  assert.equal(start?.hostSessionId, stop?.hostSessionId);
+  assert.equal(start?.hostTurnId, stop?.hostTurnId);
+  assert.deepEqual(PROVIDER_CAPABILITIES['cursor-ide'].verifiedVersions, ['3.24.9']);
+});
+
 test('Claude prompt_id pairs a turn; missing ID and continued Stop are not confirmed', () => {
   const base = { session_id: 'session-1', prompt_id: 'prompt-1' };
   const start = normalizeHook('claude-code', 'UserPromptSubmit', { ...base, hook_event_name: 'UserPromptSubmit' }, 'workspace-1');

@@ -1,0 +1,22 @@
+{
+  "provider": "cursor-ide",
+  "version": "3.24.9",
+  "events": [
+    {
+      "hook_event_name": "beforeSubmitPrompt",
+      "conversation_id": "conversation-fixture",
+      "generation_id": "generation-fixture",
+      "session_id": "conversation-fixture",
+      "cursor_version": "3.24.9"
+    },
+    {
+      "hook_event_name": "stop",
+      "conversation_id": "conversation-fixture",
+      "generation_id": "generation-fixture",
+      "session_id": "conversation-fixture",
+      "cursor_version": "3.24.9",
+      "status": "completed",
+      "loop_count": 0
+    }
+  ]
+}

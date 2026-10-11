@@ -14,7 +14,7 @@ export type ProviderCapability = {
 export const PROVIDER_CAPABILITIES: Readonly<Record<'cursor-ide' | 'cursor-cli' | 'claude-code' | 'codex-cli', ProviderCapability>> = {
   'cursor-ide': {
     host: 'Cursor IDE', startHook: 'beforeSubmitPrompt', finishHooks: ['stop'],
-    boundary: 'candidate_paired', verifiedVersions: [],
+    boundary: 'candidate_paired', verifiedVersions: ['3.24.9'],
   },
   'cursor-cli': {
     host: 'Cursor CLI', startHook: null, finishHooks: [],

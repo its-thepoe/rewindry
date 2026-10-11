@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "'/opt/homebrew/Cellar/node/26.0.0/bin/node' '/Users/MAC/Library/CloudStorage/GoogleDrive-oladipupoayoola01@gmail.com/My Drive/NEW My MacBook Pro/Engineering/Builds/rewindry/dist/cli.js' 'hook' 'cursor' 'beforeSubmitPrompt' '--root' '/Users/MAC/Library/CloudStorage/GoogleDrive-oladipupoayoola01@gmail.com/My Drive/NEW My MacBook Pro/Engineering/Builds/rewindry' '--data-dir' '/var/folders/fp/tfxyqpcx4h3frvpnn2b145840000gn/T/rewindry-cursor-daemon-dwoYro'"
+      }
+    ],
+    "stop": [
+      {
+        "command": "'/opt/homebrew/Cellar/node/26.0.0/bin/node' '/Users/MAC/Library/CloudStorage/GoogleDrive-oladipupoayoola01@gmail.com/My Drive/NEW My MacBook Pro/Engineering/Builds/rewindry/dist/cli.js' 'hook' 'cursor' 'stop' '--root' '/Users/MAC/Library/CloudStorage/GoogleDrive-oladipupoayoola01@gmail.com/My Drive/NEW My MacBook Pro/Engineering/Builds/rewindry' '--data-dir' '/var/folders/fp/tfxyqpcx4h3frvpnn2b145840000gn/T/rewindry-cursor-daemon-dwoYro'"
+      }
+    ]
+  }
+}
