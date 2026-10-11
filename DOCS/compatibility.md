@@ -7,7 +7,7 @@ Last verified: 11 October 2026. These are observed combinations, not promises fo
 | macOS arm64, Node 26.0.0 | Verified | User-level LaunchAgent bootstrapped and restarted with one preserved checkpoint; one-command setup/uninstall passed. |
 | React 19 / Vite 8.3.4 | Verified | Original dev command, real Chromium capture, in-app timeline, offline retry, compiler-error fallback and production exclusion passed. |
 | Codex CLI 0.144.4 | Lifecycle and edit probes verified; hook trust review pending | Real `UserPromptSubmit`/`Stop` shared a turn ID; a Codex edit produced one immutable checkpoint and the correct Vite screenshot. Project hooks still require the user's trust review. |
-| Cursor IDE 3.24.9 | Lifecycle verified; edit capture pending | Real `beforeSubmitPrompt` and `stop` hooks shared `conversation_id` and `generation_id`; sanitized fixture retained. A real edit-to-Rewindry-checkpoint probe remains before release. |
+| Cursor IDE 3.24.9 | Lifecycle verified; edit capture pending | Real `beforeSubmitPrompt` and `stop` hooks shared `conversation_id` and `generation_id`; sanitized fixture retained. CLI probes are not counted as IDE evidence. A real edit-to-Rewindry-checkpoint probe remains before release. |
 | Cursor Agent 2026.07.23-e383d2b | Unsupported for confirmed turns | No verified paired start/end boundary. |
 | Claude Code 2.1.296 | Verified | Real paired hooks shared `session_id` and `prompt_id`; a real edit flowed through Rewindry to one correct checkpoint. Sanitized fixture retained. Setup automatically installs hooks for this edition. |
 | Other OS, Node or Vite versions | Unverified | Source capture may work, but persistent setup and visual replay are not claimed. |

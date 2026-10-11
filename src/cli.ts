@@ -74,7 +74,9 @@ export function detectAgentVersions(
 ): Partial<Record<ManagedProvider, string>> {
   const detected: Partial<Record<ManagedProvider, string>> = {};
   for (const { provider, command, pattern } of providerCommands) {
-    const output = run(command) ?? (provider === 'cursor-ide' ? cursorAppVersion() : null);
+    const output = provider === 'cursor-ide'
+      ? cursorAppVersion() ?? run(command)
+      : run(command);
     const version = output && pattern.exec(output)?.[1];
     if (version) detected[provider] = version;
   }

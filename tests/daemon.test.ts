@@ -171,6 +171,16 @@ test('agent detection is login-free and only verified editions receive automatic
     () => '3.24.9')['cursor-ide'], '3.24.9');
 });
 
+test('Cursor IDE detection prefers the installed app version over a CLI probe', () => {
+  const commands: string[] = [];
+  const versions = detectAgentVersions((command) => {
+    commands.push(command);
+    return command === 'codex' ? 'codex-cli 0.144.4' : null;
+  }, () => '3.24.9');
+  assert.equal(versions['cursor-ide'], '3.24.9');
+  assert.equal(commands.includes('cursor'), false);
+});
+
 test('preview configuration reports pending verification, not a recorded visual', async () => {
   const { root, dataDir, cleanup } = fixture();
   const output: string[] = [];
