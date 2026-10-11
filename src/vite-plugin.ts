@@ -69,7 +69,8 @@ export function rewindryPreviewPlugin(appId: string) {
           const previous = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown> : {};
           const priorPreview = typeof previous.preview === 'object' && previous.preview !== null
             ? previous.preview as Record<string, unknown> : {};
-          const previewUrl = `http://127.0.0.1:${address.port}/`;
+          const host = address.address === '::1' || address.address === '::' ? '[::1]' : '127.0.0.1';
+          const previewUrl = `http://${host}:${address.port}/`;
           const config = {
             ...previous,
             preview: { ...priorPreview, url: previewUrl, appId },

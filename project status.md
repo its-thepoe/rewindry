@@ -18,11 +18,11 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M2 / G2 Turn manager | 🟡 in progress | Synthetic boundary suite and two consecutive real Claude changed turns pass, including a three-file/30-second-pause turn; 100-write/60-second host stress and cross-host edge cases remain. |
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | `0.1.2` setup and daemon status pass in the reported `case-files` project; OS sleep/wake, reboot and real permission-denial checks remain. |
-| M5 / G5 Visual capture and timeline | 🟢 done | Overlay and viewer use the 6px segmented stepper; browser E2E verifies desktop/mobile, keyboard, playback and 1,000-point history after sizing changes. |
-| M6 / G6 Code, Git and release | 🟡 in progress | Public npm `rewindry@0.1.2` is verified as `latest`; real setup and active source capture pass in the reported `case-files` project; broad host/platform matrix and external observations remain. |
+| M5 / G5 Visual capture and timeline | 🟡 in progress | Preview URLs now follow Vite's IPv4/IPv6 loopback binding; regression and visual E2E pass; `0.1.3` release and restart verification in `case-files` remain. |
+| M6 / G6 Code, Git and release | 🟡 in progress | Public npm `rewindry@0.1.2` is verified as `latest`; IPv6 preview fix `0.1.3` passes regression and visual E2E and awaits publication; broad host/platform matrix and external observations remain. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
-| Revised G3 first public release | 🔴 blocked | Public npm `0.1.2` is live; the product gate still needs external real-project navigation observations and full release validation. |
+| Revised G3 first public release | 🔴 blocked | Public npm `0.1.2` is live; `0.1.3` IPv6 preview fix awaits publication, and the product gate still needs external real-project navigation observations and full release validation. |
 
 ## M0 — Feasibility spikes
 
@@ -101,6 +101,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M5-07 | 🟢 | Browser E2E after sizing change verifies focus/keyboard selection, play/pause, desktop/mobile fit and 1,000-point overflow navigation |
 | M5-08 | 🟢 | Standalone viewer visibly matches the 6px segments and compact controls; measured active segment 24×6px and bar 226×42px |
 | M5-09 | 🟢 | Real Codex-plus-Vite probe captured the final `State B` UI; automatic-Vite two-turn E2E proves distinct immutable images, exact source bytes, read-only overlay and production exclusion |
+| M5-10 | 🟡 | `case-files` Vite listens on `[::1]:3100`; Rewindry had advertised unreachable `127.0.0.1:3100`. Preview URLs now match IPv4/IPv6 bindings; unit and visual E2E pass. `0.1.3` publication and restarted real-project capture remain. |
 
 ## M6 — Code, Git and release
 
@@ -116,6 +117,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-08 | 🟢 | `rewindry@0.1.0` published publicly with `latest`; npm registry metadata and `npx rewindry@latest setup --dry-run` from another project both verified. |
 | M6-09 | 🟢 | `rewindry@0.1.1` published after publish-specific web security-key approval; `npm view` confirms version and `latest` are both `0.1.1`. |
 | M6-10 | 🟢 | `rewindry@0.1.2` is live as npm `latest`; published setup succeeded and `status` reports active capture in the reported `case-files` project. |
+| M6-11 | 🟡 | `0.1.3` contains Vite-bound loopback address selection, with IPv4/IPv6 tests and full visual E2E passing; npm publication and case-files restart verification remain. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work

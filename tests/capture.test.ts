@@ -93,3 +93,35 @@ test('capture stores evidence for stable local preview and rejects source races'
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('capture accepts an IPv6 loopback preview URL', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-capture-ipv6-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'app.ts'), 'ipv6');
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const checkpoint = store.snapshot('baseline');
+  assert.ok(checkpoint);
+  const server = createServer((_request, response) => {
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ appId: 'fixture', serverId: 'ipv6-server', generation: 0, readiness: 'idle' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '::1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  try {
+    const captured = await captureCheckpoint(root, store, checkpoint, {
+      previewUrl: `http://[::1]:${address.port}/`,
+      appId: 'fixture',
+      capturePage: async (url) => {
+        assert.equal(new URL(url).hostname, '[::1]');
+        return Buffer.from('ipv6-png');
+      },
+    });
+    assert.equal(captured.status, 'captured');
+    assert.equal(captured.serverId, 'ipv6-server');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});

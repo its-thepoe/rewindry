@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import test from 'node:test';
 import { rewindryPreviewPlugin } from '../src/vite-plugin.ts';
@@ -12,6 +15,36 @@ test('preview plugin is serve-only and injects one trigger', () => {
   assert.equal(tags[0]?.attrs['data-rewindry-preview'], '');
   assert.equal(tags[0]?.attrs.src, '/__rewindry/overlay.js');
   assert.throws(() => rewindryPreviewPlugin('  '), /appId/);
+});
+
+test('preview registration uses a loopback address matching Vite IPv4 and IPv6 bindings', () => {
+  for (const address of [
+    { address: '127.0.0.1', expectedHost: '127.0.0.1' },
+    { address: '::1', expectedHost: '[::1]' },
+  ]) {
+    const root = mkdtempSync(join(tmpdir(), 'rewindry-preview-host-'));
+    try {
+      mkdirSync(join(root, '.rewindry'));
+      const httpServer = Object.assign(new EventEmitter(), {
+        listening: false,
+        address: () => ({ address: address.address, family: address.address.includes(':') ? 'IPv6' : 'IPv4', port: 3100 }),
+      });
+      const plugin = rewindryPreviewPlugin('fixture');
+      plugin.configureServer({
+        config: { root },
+        httpServer: httpServer as unknown as import('node:http').Server,
+        watcher: new EventEmitter(),
+        middlewares: { use() {} },
+      });
+      httpServer.emit('listening');
+      const config = JSON.parse(readFileSync(join(root, '.rewindry', 'config.json'), 'utf8')) as {
+        preview: { url: string };
+      };
+      assert.equal(config.preview.url, `http://${address.expectedHost}:3100/`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
 });
 
 test('preview identity is stable per server and generation increases on observed writes', () => {

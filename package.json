@@ -1,6 +1,6 @@
 {
   "name": "rewindry",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local, immutable checkpoints for visual history of code changes.",
   "license": "MIT",
   "repository": {
