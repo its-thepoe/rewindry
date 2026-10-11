@@ -15,7 +15,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | G0-P Product proof (proposed addendum) | 🔴 blocked | Five to eight external design-engineer observations require participants; no results yet. |
 | M0 / G0-T Feasibility | 🟡 in progress | React/Vite, Codex 0.144.4, Claude Code 2.1.296, and Cursor IDE 3.24.9 lifecycle boundaries are verified; Cursor edit-to-checkpoint evidence remains. |
 | M1 / G1 Foundation and storage | 🟢 done | Immutable store, multi-root isolation, process-kill recovery, moved-repo rebind and injected watcher-error reconciliation pass; hosted macOS CI passes clean root/example installs, typecheck, 74 tests, and visual E2E. |
-| M2 / G2 Turn manager | 🟡 in progress | Synthetic G2 boundary suite and real Claude three-file/30-second-pause boundary pass; 100-write/60-second host stress and cross-host edge cases remain. |
+| M2 / G2 Turn manager | 🟡 in progress | Synthetic boundary suite and two consecutive real Claude changed turns pass, including a three-file/30-second-pause turn; 100-write/60-second host stress and cross-host edge cases remain. |
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | Multi-workspace registry and isolated daemon routing pass; OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟢 done | Overlay and viewer use the 6px segmented stepper; browser E2E verifies desktop/mobile, keyboard, playback and 1,000-point history after sizing changes. |
@@ -68,7 +68,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | --- | --- | --- |
 | M3-01 | 🟢 | Bounded fail-open forwarder and real Codex hook-to-socket-to-daemon edit turn pass |
 | M3-02 | 🟡 | Cursor IDE 3.24.9 paired boundaries and project hook merge/uninstall tests pass; hooks are enabled for this verified edition. Latest real IDE probe on 11 Oct 2026 ended with the fixture unchanged and only an `unattributed_group`, so edit-to-checkpoint support is unverified. |
-| M3-03 | 🟢 | Claude Code 2.1.296 real paired start/stop hooks and hook-to-daemon capture verified; a three-file edit with a 30-second in-turn pause produced one checkpoint with exact final source bytes on 11 Oct 2026; project-local merge/uninstall tests pass; setup auto-installs this edition. |
+| M3-03 | 🟢 | Claude Code 2.1.296 real paired start/stop hooks and hook-to-daemon capture verified; two consecutive changed prompts produced two exact checkpoints, with three file edits and a 30-second in-turn pause on the first, on 11 Oct 2026; project-local merge/uninstall tests pass; setup auto-installs this edition. |
 | M3-04 | 🟡 | Codex 0.144.4 paired hook, real edit capture and project hook install pass; legacy notify chaining remains unverified |
 | M3-05 | 🟢 | Capability registry verifies Codex CLI 0.144.4, Cursor IDE 3.24.9 and Claude Code 2.1.296; version-selection tests pass. |
 | M3-06 | 🟢 | Linked Git worktrees retain separate source history and app provenance; one daemon routes events and reports status independently for multiple roots |
@@ -131,7 +131,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, 100-write/60-second host stress case, sleep/reboot, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 made three separate edits, paused 30 seconds inside the turn, and produced one exact final-tree checkpoint. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, 100-write/60-second host stress case, sleep/reboot, external recovery observations, and release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 produced two sequential exact checkpoints; the first covered three file edits and a 30-second in-turn pause. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
@@ -145,7 +145,7 @@ Statuses below refer to the numbered criteria in `DOCS/rewindry_mvp_prd.md` sect
 | 4 Unsupported OS/denied permission | 🟡 | Unsupported setup guard, degraded daemon health and denied-bootstrap rollback test pass; real OS permission denial pending. |
 | 5 Repeat setup/uninstall | 🟡 | Fixture idempotency and real setup/uninstall pass; real repeat cycle pending. |
 | 6 Long multi-write agent turn | 🟡 | Real Claude turn made three separate file edits, paused 30 seconds before finishing, and produced one exact checkpoint; synthetic 100-write/60-second-pause case passes; real 100-write/60-second host stress remains. |
-| 7 Consecutive changed turns | 🟡 | Synthetic and browser two-turn runs pass; real agent two-prompt run pending. |
+| 7 Consecutive changed turns | 🟢 | Real Claude Code 2.1.296 ran two consecutive changed prompts in the same project; exactly two sequential checkpoints retained their respective exact final trees. |
 | 8 Repeated/subagent callbacks | 🟡 | Adapter and turn fixtures pass; real host callbacks pending. |
 | 9 No-change/failed prompt | 🟡 | Deterministic turn tests pass; real host failed turn pending. |
 | 10 Final tree and turn identity | 🟢 | Real Codex and Claude edits each produced one correctly identified immutable final checkpoint with the exact final source bytes; Codex also matched the Vite PNG. |
