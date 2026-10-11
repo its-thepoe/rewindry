@@ -2,6 +2,9 @@
   "name": "rewindry-vite-react-fixture",
   "private": true,
   "type": "module",
+  "allowScripts": {
+    "fsevents@2.3.3": true
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build"
