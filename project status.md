@@ -113,7 +113,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-06 | 🟢 | 1,000-point viewer browser check passes; 512 MiB default source-blob budget pauses new checkpoints without deleting history, separate image limits remain; quota test passes |
 | M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; hosted macOS CI now passes after adding the example dependency install. Broader host/platform matrix and user recovery study remain. |
 | M6-08 | 🟢 | `rewindry@0.1.0` published publicly with `latest`; npm registry metadata and `npx rewindry@latest setup --dry-run` from another project both verified. |
-| M6-09 | 🔴 | Patch `0.1.1` is pushed and package dry-run passes, but npm rejected publication with `EOTP` and requires account-owner web/one-time-password authorization. No OTP was requested or stored. |
+| M6-09 | 🔴 | Patch `0.1.1` is pushed and package dry-run passes. Publish retried after npm login and again returned `EOTP`; npm requires an account-owner one-time password. No OTP was requested or stored. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work
