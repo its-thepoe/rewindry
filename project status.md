@@ -117,7 +117,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-07 | 🟡 | Failure/recovery guide and evidence log are complete; hosted macOS CI now passes after adding the example dependency install. Broader host/platform matrix and user recovery study remain. |
 | M6-08 | 🟢 | `rewindry@0.1.0` published publicly with `latest`; npm registry metadata and `npx rewindry@latest setup --dry-run` from another project both verified. |
 | M6-09 | 🟢 | `rewindry@0.1.1` published after publish-specific web security-key approval; `npm view` confirms version and `latest` are both `0.1.1`. |
-| M6-10 | 🟢 | `rewindry@0.1.2` is live as npm `latest`; published setup succeeded and `status` reports active capture in the reported `case-files` project. |
+| M6-10 | 🟢 | `rewindry@0.1.2` release setup succeeded and `status` reported active capture in the reported `case-files` project; superseded by `0.1.3`. |
 | M6-11 | 🟢 | `0.1.3` is published as npm `latest`; IPv4/IPv6 regression tests and visual E2E pass, and the reported project restarted with the expected IPv6 preview URL. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
@@ -138,7 +138,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, 100-write/60-second host stress case, sleep/reboot, external recovery observations, and remaining release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 produced two sequential exact checkpoints; the first covered three file edits and a 30-second in-turn pause. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E. Public npm `0.1.2` is live and its published setup dry-run passes from the reported `case-files` project; real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, 100-write/60-second host stress case, sleep/reboot, external recovery observations, and remaining release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 produced two sequential exact checkpoints; the first covered three file edits and a 30-second in-turn pause. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E; this turn's local verification passes 80 unit tests, browser/Vite E2E, and typecheck. Public npm `0.1.3` is live; its setup restarted in the reported `case-files` project and registered the IPv6 preview URL. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
