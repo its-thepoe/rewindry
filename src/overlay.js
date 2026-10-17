@@ -11,6 +11,10 @@
   root.innerHTML = `
     <button class="trigger" type="button" title="Open Rewindry timeline" aria-label="Open Rewindry timeline" aria-expanded="false">●</button>
     <section class="review" hidden aria-label="Recorded visual">
+      <div class="capture-controls" hidden>
+        <label>Screen/component<select class="target-select" aria-label="Screen or component"></select></label>
+        <label>Viewport<select class="viewport-select" aria-label="Viewport"></select></label>
+      </div>
       <div class="visual"><img alt="" hidden><p class="missing" hidden>No visual was captured for this iteration.</p></div>
       <time class="time"></time>
     </section>
@@ -28,6 +32,9 @@
   const image = root.querySelector('.visual img');
   const missing = root.querySelector('.missing');
   const time = root.querySelector('.time');
+  const captureControls = root.querySelector('.capture-controls');
+  const targetSelect = root.querySelector('.target-select');
+  const viewportSelect = root.querySelector('.viewport-select');
   const timeline = root.querySelector('.timeline');
   const dots = root.querySelector('.dots');
   const previous = root.querySelector('.previous');
@@ -45,6 +52,51 @@
   let checkpoints = [];
   let selected = 0;
   let playing = null;
+  let selectedTargetId = null;
+  let selectedViewportId = null;
+
+  const targetOptions = () => {
+    const seen = new Set();
+    return checkpoints.flatMap((point) => Array.isArray(point.targets) ? point.targets : []).filter((target) => {
+      if (typeof target.targetId !== 'string' || seen.has(target.targetId)) return false;
+      seen.add(target.targetId);
+      return true;
+    });
+  };
+  const viewportOptions = (targetId) => {
+    const seen = new Set();
+    return checkpoints.flatMap((point) => Array.isArray(point.targets) ? point.targets : [])
+      .filter((target) => target.targetId === targetId && typeof target.viewportId === 'string')
+      .filter((target) => {
+        if (seen.has(target.viewportId)) return false;
+        seen.add(target.viewportId);
+        return true;
+      });
+  };
+  const updateOptions = (select, options, valueKey, labelKey, value) => {
+    const current = [...select.options].map((option) => [option.value, option.textContent]);
+    const next = options.map((option) => [option[valueKey], option[labelKey]]);
+    if (JSON.stringify(current) !== JSON.stringify(next)) {
+      select.replaceChildren(...options.map((option) => new Option(option[labelKey], option[valueKey])));
+    }
+    select.value = value ?? '';
+    select.disabled = options.length < 2;
+  };
+  const selectedVisual = (point) => {
+    if (!Array.isArray(point.targets)) return point.previewStatus === 'captured' ? { imageUrl: point.previewUrl, targetLabel: 'Recorded page' } : null;
+    return point.targets.find((target) => target.targetId === selectedTargetId && target.viewportId === selectedViewportId) ?? null;
+  };
+  const updateCaptureControls = (point) => {
+    const targets = targetOptions();
+    captureControls.hidden = point.live || targets.length === 0;
+    if (point.live || !targets.length) return;
+    if (!targets.some((target) => target.targetId === selectedTargetId)) selectedTargetId = targets[0].targetId;
+    const viewports = viewportOptions(selectedTargetId);
+    if (!viewports.some((viewport) => viewport.viewportId === selectedViewportId)) selectedViewportId = viewports[0]?.viewportId ?? null;
+    const uniqueTargets = targets.filter((target, index) => targets.findIndex((item) => item.targetId === target.targetId) === index);
+    updateOptions(targetSelect, uniqueTargets, 'targetId', 'targetLabel', selectedTargetId);
+    updateOptions(viewportSelect, viewports, 'viewportId', 'viewportLabel', selectedViewportId);
+  };
 
   const items = () => [...checkpoints, { id: '__live__', live: true }];
   const stop = () => {
@@ -59,8 +111,10 @@
     peek.style.left = `${Math.max(8, Math.min(innerWidth - 188, bounds.left + bounds.width / 2 - 90))}px`;
     peek.hidden = false;
     peekLabel.textContent = entry.live ? 'Current working state' : `${format.format(new Date(entry.createdAt))}${entry.overlap ? ' · Overlapping activity' : ''}${entry.previewStatus === 'captured' ? '' : ' · Source only'}`;
-    peekImage.hidden = entry.previewStatus !== 'captured';
-    if (entry.previewStatus === 'captured') peekImage.src = entry.previewUrl;
+    const capture = selectedVisual(entry);
+    const imageUrl = capture?.status === 'captured' ? capture.imageUrl : capture?.imageUrl;
+    peekImage.hidden = !imageUrl;
+    if (imageUrl) peekImage.src = imageUrl;
     else peekImage.removeAttribute('src');
   };
   const hidePeek = () => { peek.hidden = true; };
@@ -73,10 +127,18 @@
     if (historical) {
       time.textContent = format.format(new Date(point.createdAt));
       time.dateTime = point.createdAt;
-      image.hidden = point.previewStatus !== 'captured';
-      missing.hidden = point.previewStatus === 'captured';
-      if (point.previewStatus === 'captured') image.src = point.previewUrl;
+      updateCaptureControls(point);
+      const capture = selectedVisual(point);
+      const imageUrl = capture?.status === 'captured' ? capture.imageUrl : capture?.imageUrl;
+      image.hidden = !imageUrl;
+      missing.hidden = Boolean(imageUrl);
+      if (imageUrl) image.src = imageUrl;
       else image.removeAttribute('src');
+      if (!imageUrl && Array.isArray(point.targets)) {
+        missing.textContent = `${capture?.targetLabel ?? 'Selected screen/component'} · ${capture?.viewportLabel ?? 'Selected viewport'} ${capture?.status === 'captured' ? 'is unavailable' : 'was not captured'}${capture?.reason ? ` (${capture.reason})` : ''} for this iteration.`;
+      } else {
+        missing.textContent = 'No visual was captured for this iteration.';
+      }
     }
     const fragment = document.createDocumentFragment();
     all.forEach((entry, index) => {
@@ -131,6 +193,15 @@
     close.focus();
   });
   close.addEventListener('click', hide);
+  targetSelect.addEventListener('change', () => {
+    selectedTargetId = targetSelect.value;
+    selectedViewportId = null;
+    render();
+  });
+  viewportSelect.addEventListener('change', () => {
+    selectedViewportId = viewportSelect.value;
+    render();
+  });
   previous.addEventListener('click', () => { selected--; render(); });
   next.addEventListener('click', () => { selected++; render(); });
   play.addEventListener('click', () => {

@@ -4,6 +4,9 @@ const elements = {
   title: document.getElementById('point-title'),
   eyebrow: document.getElementById('point-eyebrow'),
   time: document.getElementById('point-time'),
+  captureControls: document.getElementById('capture-controls'),
+  targetSelect: document.getElementById('target-select'),
+  viewportSelect: document.getElementById('viewport-select'),
   image: document.getElementById('visual-image'),
   liveFrame: document.getElementById('live-frame'),
   visualMessage: document.getElementById('visual-message'),
@@ -38,6 +41,8 @@ const state = {
   request: 0,
   playing: null,
   renderedIndex: -1,
+  selectedTargetId: null,
+  selectedViewportId: null,
 };
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -67,6 +72,58 @@ function localUrl(value) {
   }
 }
 
+function targetOptions() {
+  const seen = new Set();
+  return state.checkpoints.flatMap((point) => Array.isArray(point.targets) ? point.targets : [])
+    .filter((target) => {
+      if (typeof target.targetId !== 'string' || seen.has(target.targetId)) return false;
+      seen.add(target.targetId);
+      return true;
+    });
+}
+
+function viewportOptions(targetId) {
+  const seen = new Set();
+  return state.checkpoints.flatMap((point) => Array.isArray(point.targets) ? point.targets : [])
+    .filter((target) => target.targetId === targetId && typeof target.viewportId === 'string')
+    .filter((target) => {
+      if (seen.has(target.viewportId)) return false;
+      seen.add(target.viewportId);
+      return true;
+    });
+}
+
+function updateOptions(select, options, valueKey, labelKey, selected) {
+  const current = [...select.options].map((option) => [option.value, option.textContent]);
+  const next = options.map((option) => [option[valueKey], option[labelKey]]);
+  if (JSON.stringify(current) !== JSON.stringify(next)) {
+    select.replaceChildren(...options.map((option) => new Option(option[labelKey], option[valueKey])));
+  }
+  select.value = selected ?? '';
+  select.disabled = options.length < 2;
+}
+
+function selectedVisual(point) {
+  if (!Array.isArray(point.targets)) {
+    return point.previewStatus === 'captured' ? { url: point.previewUrl, label: 'Recorded page' } : null;
+  }
+  return point.targets.find((target) => target.targetId === state.selectedTargetId && target.viewportId === state.selectedViewportId) ?? null;
+}
+
+function renderCaptureControls(point) {
+  const targets = targetOptions();
+  elements.captureControls.hidden = point.live || targets.length === 0;
+  if (point.live || !targets.length) return;
+  if (!targets.some((target) => target.targetId === state.selectedTargetId)) state.selectedTargetId = targets[0].targetId;
+  const viewports = viewportOptions(state.selectedTargetId);
+  if (!viewports.some((viewport) => viewport.viewportId === state.selectedViewportId)) {
+    state.selectedViewportId = viewports[0]?.viewportId ?? null;
+  }
+  const targetChoices = targets.filter((target, index) => targets.findIndex((item) => item.targetId === target.targetId) === index);
+  updateOptions(elements.targetSelect, targetChoices, 'targetId', 'targetLabel', state.selectedTargetId);
+  updateOptions(elements.viewportSelect, viewports, 'viewportId', 'viewportLabel', state.selectedViewportId);
+}
+
 function stopPlayback() {
   if (state.playing !== null) window.clearInterval(state.playing);
   state.playing = null;
@@ -76,7 +133,12 @@ function stopPlayback() {
 }
 
 function setVisual(point) {
-  const url = localUrl(point.live ? point.url : point.previewStatus === 'captured' ? point.previewUrl : null);
+  renderCaptureControls(point);
+  const capture = point.live ? null : selectedVisual(point);
+  const recordedUrl = Array.isArray(point.targets)
+    ? capture?.status === 'captured' ? capture.imageUrl : null
+    : capture?.url;
+  const url = localUrl(point.live ? point.url : recordedUrl);
   elements.image.hidden = true;
   elements.image.removeAttribute('src');
   elements.liveFrame.hidden = true;
@@ -85,7 +147,9 @@ function setVisual(point) {
   if (!url) {
     elements.visualMessage.textContent = point.live
       ? 'Live preview is unavailable.'
-      : 'No visual was captured for this iteration. Historical code is available.';
+      : Array.isArray(point.targets)
+        ? `${capture?.targetLabel ?? 'Selected screen/component'} · ${capture?.viewportLabel ?? 'Selected viewport'} ${capture?.status === 'captured' ? 'is unavailable' : 'was not captured'}${capture?.reason ? ` (${capture.reason})` : ''} for this iteration. Historical code is available.`
+        : 'No visual was captured for this iteration. Historical code is available.';
     return;
   }
   elements.visualMessage.textContent = 'Loading visual…';
@@ -104,7 +168,7 @@ function setVisual(point) {
     elements.liveFrame.src = url;
     return;
   }
-  elements.image.alt = point.live ? 'Current working state preview' : `Recorded preview from ${displayTime(point.createdAt)}`;
+  elements.image.alt = point.live ? 'Current working state preview' : `${capture?.targetLabel ?? 'Recorded page'} at ${capture?.viewportLabel ?? 'recorded viewport'}, from ${displayTime(point.createdAt)}`;
   elements.image.onload = () => {
     elements.visualMessage.hidden = true;
     elements.image.hidden = false;
@@ -112,7 +176,7 @@ function setVisual(point) {
   elements.image.onerror = () => {
     elements.image.hidden = true;
     elements.visualMessage.hidden = false;
-    elements.visualMessage.textContent = 'Visual unavailable. Historical code is still available.';
+    elements.visualMessage.textContent = `${capture?.targetLabel ?? 'Visual'} · ${capture?.viewportLabel ?? 'selected viewport'} could not be loaded. Historical code is still available.`;
   };
   elements.image.src = url;
 }
@@ -358,6 +422,15 @@ elements.play.addEventListener('click', togglePlayback);
 elements.codeToggle.addEventListener('click', () => elements.codePanel.hidden ? openCode() : closeCode());
 elements.codeClose.addEventListener('click', () => { closeCode(); elements.codeToggle.focus(); });
 elements.fileSelect.addEventListener('change', loadContent);
+elements.targetSelect.addEventListener('change', () => {
+  state.selectedTargetId = elements.targetSelect.value;
+  state.selectedViewportId = null;
+  renderPoint();
+});
+elements.viewportSelect.addEventListener('change', () => {
+  state.selectedViewportId = elements.viewportSelect.value;
+  renderPoint();
+});
 elements.modeFile.addEventListener('click', () => setMode('file'));
 elements.modeDiff.addEventListener('click', () => setMode('diff'));
 elements.copy.addEventListener('click', copyContent);

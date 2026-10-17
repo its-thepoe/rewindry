@@ -129,3 +129,89 @@ test('viewer SSE stream is authenticated and announces new checkpoints', { timeo
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('authenticated viewer publishes named captures, keeps legacy records readable and validates target images', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-api-targets-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'app.ts'), 'visuals');
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const checkpoint = store.snapshot('baseline');
+  assert.ok(checkpoint);
+  const previewDirectory = join(root, '.rewindry', 'previews', checkpoint.id);
+  mkdirSync(previewDirectory, { recursive: true });
+  writeFileSync(join(previewDirectory, 'primary.png'), 'primary-image');
+  writeFileSync(join(previewDirectory, 'home--desktop.png'), 'desktop-image');
+  writeFileSync(join(previewDirectory, 'primary.json'), JSON.stringify({
+    checkpointId: checkpoint.id,
+    status: 'captured',
+    sourceDigest: checkpoint.digest,
+    appId: 'fixture',
+    route: '/',
+    viewport: { width: 390, height: 844 },
+    fidelityLimits: [],
+    primaryTargetId: 'home',
+    primaryViewportId: 'mobile',
+    targets: [
+      { targetId: 'home', targetLabel: 'Bingo home', viewportId: 'mobile', viewportLabel: 'Mobile', route: '/', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1, status: 'captured', imageFile: 'primary.png' },
+      { targetId: 'home', targetLabel: 'Bingo home', viewportId: 'desktop', viewportLabel: 'Desktop', route: '/', viewport: { width: 1280, height: 800 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1, status: 'captured', imageFile: 'home--desktop.png' },
+      { targetId: 'board', targetLabel: 'Bingo board', viewportId: 'mobile', viewportLabel: 'Mobile', route: '/', selector: '[data-board]', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1, status: 'source_only', reason: 'selector missing' },
+    ],
+  }));
+  const viewer = new ViewerServer(root, store);
+  try {
+    const unlockUrl = await viewer.start();
+    const base = new URL(unlockUrl).origin;
+    const unlock = await fetch(unlockUrl, { redirect: 'manual' });
+    const cookie = unlock.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie);
+    const headers = { Cookie: cookie };
+    const response = await fetch(`${base}/api/checkpoints`, { headers });
+    const body = await response.json() as { checkpoints: Array<{ id: string; previewUrl?: string; targets: Array<{ targetId: string; viewportId: string; imageUrl?: string; status: string }> }> };
+    const listed = body.checkpoints[0]!;
+    assert.equal(listed.id, checkpoint.id);
+    assert.equal(listed.targets.length, 3);
+    assert.equal(listed.targets[0]?.imageUrl, `/api/previews/${checkpoint.id}/home/mobile.png`);
+    assert.equal(listed.targets[1]?.imageUrl, `/api/previews/${checkpoint.id}/home/desktop.png`);
+    assert.equal(listed.targets[2]?.status, 'source_only');
+    const primary = await fetch(`${base}${listed.previewUrl}`, { headers });
+    assert.equal(await primary.text(), 'primary-image');
+    const desktop = await fetch(`${base}/api/previews/${checkpoint.id}/home/desktop.png`, { headers });
+    assert.equal(await desktop.text(), 'desktop-image');
+    assert.equal((await fetch(`${base}/api/previews/${checkpoint.id}/board/mobile.png`, { headers })).status, 404);
+    assert.equal((await fetch(`${base}/api/previews/${checkpoint.id}/../home/desktop.png`, { headers })).status, 404);
+    assert.equal((await fetch(`${base}/api/previews/ffffffff-ffff-4fff-8fff-ffffffffffff/home/desktop.png`, { headers })).status, 404);
+    assert.equal((await fetch(`${base}/api/previews/${checkpoint.id}/home/desktop.png`)).status, 401);
+    assert.equal((await fetch(`${base}/api/previews/${checkpoint.id}/home/desktop.png`, { headers: { ...headers, Origin: 'http://127.0.0.1:5173' } })).status, 403);
+
+    writeFileSync(join(root, 'src', 'app.ts'), 'legacy');
+    const legacy = await store.snapshot('unattributed_group');
+    assert.ok(legacy);
+    const legacyDirectory = join(root, '.rewindry', 'previews', legacy.id);
+    mkdirSync(legacyDirectory, { recursive: true });
+    writeFileSync(join(legacyDirectory, 'primary.json'), JSON.stringify({ status: 'captured', route: '/old', viewport: { width: 800, height: 600 } }));
+    writeFileSync(join(legacyDirectory, 'primary.png'), 'legacy-image');
+    const refreshed = await (await fetch(`${base}/api/checkpoints`, { headers })).json() as { checkpoints: Array<{ id: string; targets: Array<{ targetId: string; route: string; viewport: { width: number; height: number }; imageUrl?: string }> }> };
+    const fallback = refreshed.checkpoints.find((item) => item.id === legacy.id)!;
+    assert.deepEqual([fallback.targets[0]?.targetId, fallback.targets[0]?.route, fallback.targets[0]?.viewport], ['default', '/old', { width: 800, height: 600 }]);
+    assert.equal(fallback.targets[0]?.imageUrl, `/api/previews/${legacy.id}/default/desktop.png`);
+    assert.equal(await (await fetch(`${base}${fallback.targets[0]!.imageUrl}`, { headers })).text(), 'legacy-image');
+
+    symlinkSync(join(root, 'src', 'app.ts'), join(previewDirectory, 'home--symlink.png'));
+    writeFileSync(join(previewDirectory, 'primary.json'), JSON.stringify({
+      status: 'captured', route: '/', viewport: { width: 390, height: 844 },
+      targets: [{ targetId: 'home', targetLabel: 'Bingo home', viewportId: 'symlink', viewportLabel: 'Symlink', route: '/', viewport: { width: 390, height: 844 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1, status: 'captured', imageFile: 'home--symlink.png' }],
+    }));
+    assert.equal((await fetch(`${base}/api/previews/${checkpoint.id}/home/symlink.png`, { headers })).status, 404);
+    rmSync(join(previewDirectory, 'home--symlink.png'));
+    writeFileSync(join(previewDirectory, 'home--large.png'), Buffer.alloc(4 * 1024 * 1024 + 1));
+    writeFileSync(join(previewDirectory, 'primary.json'), JSON.stringify({
+      status: 'captured', route: '/', viewport: { width: 390, height: 844 },
+      targets: [{ targetId: 'home', targetLabel: 'Bingo home', viewportId: 'large', viewportLabel: 'Large', route: '/', viewport: { width: 390, height: 844 }, isMobile: false, hasTouch: false, deviceScaleFactor: 1, status: 'captured', imageFile: 'home--large.png' }],
+    }));
+    assert.equal((await fetch(`${base}/api/previews/${checkpoint.id}/home/large.png`, { headers })).status, 404);
+  } finally {
+    await viewer.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

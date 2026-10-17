@@ -28,6 +28,16 @@
             </div>
             <time id="point-time" class="point-time"></time>
           </div>
+          <div class="capture-controls" id="capture-controls" hidden>
+            <div class="capture-control">
+              <label for="target-select">Screen/component</label>
+              <select id="target-select" aria-label="Screen or component"></select>
+            </div>
+            <div class="capture-control">
+              <label for="viewport-select">Viewport</label>
+              <select id="viewport-select" aria-label="Viewport"></select>
+            </div>
+          </div>
           <div class="visual" id="visual" aria-live="polite">
             <div class="visual-message" id="visual-message">Loading recorded states…</div>
             <img id="visual-image" alt="" hidden />
