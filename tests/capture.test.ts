@@ -94,6 +94,73 @@ test('capture stores evidence for stable local preview and rejects source races'
   }
 });
 
+test('legacy capture defaults to the root desktop viewport and primary.png', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-legacy-default-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'app.ts'), 'legacy default');
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const checkpoint = store.snapshot('baseline');
+  assert.ok(checkpoint);
+  const server = createServer((_request, response) => response.end(JSON.stringify({
+    appId: 'fixture', serverId: 'legacy-default', generation: 0, readiness: 'idle',
+  })));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  let capturedUrl = '';
+  let capturedRequest: unknown;
+  try {
+    const record = await captureCheckpoint(root, store, checkpoint, {
+      previewUrl: `http://127.0.0.1:${address.port}/`,
+      appId: 'fixture',
+      capturePage: async (url, request) => {
+        capturedUrl = url;
+        capturedRequest = request;
+        return Buffer.from('legacy-png');
+      },
+    });
+    const previewDirectory = join(root, '.rewindry', 'previews', checkpoint.id);
+    const metadata = JSON.parse(readFileSync(join(previewDirectory, 'primary.json'), 'utf8'));
+
+    assert.equal(new URL(capturedUrl).pathname, '/');
+    assert.deepEqual(capturedRequest, {
+      viewport: { width: 1280, height: 800 },
+      isMobile: false,
+      hasTouch: false,
+      deviceScaleFactor: 1,
+    });
+    assert.equal(record.status, 'captured');
+    assert.equal(record.route, '/');
+    assert.deepEqual(record.viewport, { width: 1280, height: 800 });
+    assert.deepEqual(record.targets, [{
+      targetId: 'default',
+      targetLabel: 'Page',
+      viewportId: 'desktop',
+      viewportLabel: 'Desktop',
+      route: '/',
+      viewport: { width: 1280, height: 800 },
+      isMobile: false,
+      hasTouch: false,
+      deviceScaleFactor: 1,
+      status: 'captured',
+      imageFile: 'primary.png',
+    }]);
+    assert.equal(record.primaryTargetId, 'default');
+    assert.equal(record.primaryViewportId, 'desktop');
+    assert.equal(metadata.status, 'captured');
+    assert.equal(metadata.route, '/');
+    assert.deepEqual(metadata.viewport, { width: 1280, height: 800 });
+    assert.deepEqual(metadata.targets, record.targets);
+    assert.equal(metadata.primaryTargetId, 'default');
+    assert.equal(metadata.primaryViewportId, 'desktop');
+    assert.equal(readFileSync(join(previewDirectory, 'primary.png')).toString(), 'legacy-png');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('capture accepts an IPv6 loopback preview URL', async () => {
   const root = mkdtempSync(join(tmpdir(), 'rewindry-capture-ipv6-'));
   mkdirSync(join(root, 'src'));

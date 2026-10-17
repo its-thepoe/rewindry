@@ -103,7 +103,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M5-08 | 🟢 | Standalone viewer visibly matches the 6px segments and compact controls; measured active segment 24×6px and bar 226×42px |
 | M5-09 | 🟢 | Real Codex-plus-Vite probe captured the final `State B` UI; automatic-Vite two-turn E2E proves distinct immutable images, exact source bytes, read-only overlay and production exclusion |
 | M5-10 | 🟡 | `case-files` Vite listens on `[::1]:3100`; Rewindry had advertised unreachable `127.0.0.1:3100`. Published `0.1.3` now registers `http://[::1]:3100/`, and the preview endpoint responds with `readiness: idle`; a real captured screenshot remains to be verified. |
-| M5-11 | 🟢 | Named route/component targets and mobile/desktop profiles are captured on one iteration; E2E verifies 390×844 and 1280×800 PNGs, successful/missing/duplicate selectors, selector persistence, mobile control fit and production exclusion. Legacy `primary.png` records remain readable; no historical backfill. `npm run typecheck`, all 86 unit tests, browser/Vite E2E and `npm run build` pass. |
+| M5-11 | 🟢 | Named route/component targets and mobile/desktop profiles are captured on one iteration; E2E verifies 390×844 and 1280×800 PNGs, successful/missing/duplicate selectors, selector persistence, mobile control fit and production exclusion. Legacy `primary.png` records remain readable; no historical backfill. `npm run typecheck`, all 87 unit tests, browser/Vite E2E and `npm run build` pass. |
 
 ## M6 — Code, Git and release
 
