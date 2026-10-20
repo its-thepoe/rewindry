@@ -24,6 +24,8 @@ Setup creates a baseline and starts local source capture. In a supported Vite pr
 
 Once the preview is running, use your app and coding tools as usual. Changed, completed turns and groups of local edits become timeline checkpoints. When the dev preview is unavailable, source history can still be reviewed without screenshots.
 
+The preview stays clear while the timeline is closed. Press `Alt+Shift+R` to open or close it, move the pointer to the bottom-centre trigger to reveal it, or tap the trigger's former position on touch devices. Press `Escape` to close the timeline.
+
 ## What you can do
 
 - Browse a timeline of recorded source iterations and available screenshots.

@@ -9,12 +9,12 @@
   shadow.append(stylesheet);
   const root = document.createElement('div');
   root.innerHTML = `
-    <button class="trigger" type="button" title="Open Rewindry timeline" aria-label="Open Rewindry timeline" aria-expanded="false">●</button>
+    <button class="trigger" type="button" title="Open Rewindry timeline (Alt+Shift+R)" aria-label="Open Rewindry timeline (Alt+Shift+R)" aria-expanded="false">●</button>
     <section class="review" hidden aria-label="Recorded visual">
       <div class="visual"><img alt="" hidden><p class="missing" hidden>No visual was captured for this iteration.</p></div>
       <time class="time"></time>
     </section>
-    <nav class="timeline" hidden aria-label="Rewindry iteration timeline">
+    <nav class="timeline" hidden aria-label="Rewindry iteration timeline" aria-keyshortcuts="Alt+Shift+R">
       <button class="control previous" type="button" title="Previous iteration" aria-label="Previous iteration">‹</button>
       <div class="dots" role="group" aria-label="Recorded iterations and current state"></div>
       <button class="control next" type="button" title="Next iteration" aria-label="Next iteration">›</button>
@@ -45,6 +45,12 @@
   let checkpoints = [];
   let selected = 0;
   let playing = null;
+  let outsideFocusTarget = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
+
+  document.addEventListener('focusin', (event) => {
+    if (event.composedPath().includes(host) || !(event.target instanceof HTMLElement)) return;
+    outsideFocusTarget = event.target;
+  }, true);
 
   const items = () => [...checkpoints, { id: '__live__', live: true }];
   const stop = () => {
@@ -112,6 +118,15 @@
       render();
     } catch { /* Source capture can remain available while the dev server restarts. */ }
   };
+  const open = () => {
+    if (!timeline.hidden) return;
+    trigger.hidden = true;
+    timeline.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    selected = checkpoints.length;
+    void refresh();
+    close.focus();
+  };
   const hide = () => {
     stop();
     hidePeek();
@@ -120,16 +135,9 @@
     trigger.setAttribute('aria-expanded', 'false');
     selected = checkpoints.length;
     render();
-    trigger.focus();
+    if (outsideFocusTarget.isConnected && !host.contains(outsideFocusTarget)) outsideFocusTarget.focus({ preventScroll: true });
   };
-  trigger.addEventListener('click', () => {
-    trigger.hidden = true;
-    timeline.hidden = false;
-    trigger.setAttribute('aria-expanded', 'true');
-    selected = checkpoints.length;
-    void refresh();
-    close.focus();
-  });
+  trigger.addEventListener('click', open);
   close.addEventListener('click', hide);
   previous.addEventListener('click', () => { selected--; render(); });
   next.addEventListener('click', () => { selected++; render(); });
@@ -147,6 +155,16 @@
     }, 1400);
   });
   window.addEventListener('keydown', (event) => {
+    const target = event.target;
+    const isEditable = target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'));
+    const isToggleShortcut = event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'r';
+    if (isToggleShortcut && !isEditable) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (timeline.hidden) open();
+      else hide();
+      return;
+    }
     if (timeline.hidden) return;
     if (event.key === 'Escape') return hide();
     if (event.key === 'ArrowLeft') selected--;
@@ -158,6 +176,26 @@
     render();
   });
   document.documentElement.append(host);
+  window.addEventListener('pointermove', (event) => {
+    if (timeline.hidden && event.pointerType === 'mouse') {
+      const bounds = trigger.getBoundingClientRect();
+      const nearTrigger = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+      trigger.classList.toggle('is-revealed', nearTrigger);
+    } else {
+      trigger.classList.remove('is-revealed');
+    }
+  });
+  window.addEventListener('pointerdown', (event) => {
+    if (timeline.hidden && event.pointerType !== 'mouse') {
+      const bounds = trigger.getBoundingClientRect();
+      const hitTrigger = event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+      if (hitTrigger) {
+        event.preventDefault();
+        event.stopPropagation();
+        open();
+      }
+    }
+  }, true);
   selected = checkpoints.length;
   render();
   void refresh();

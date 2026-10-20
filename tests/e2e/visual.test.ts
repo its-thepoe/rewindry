@@ -134,7 +134,16 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
         const page = await browser.newPage({ viewport });
         await page.goto(previewUrl, { waitUntil: 'networkidle' });
         const overlay = page.locator('#rewindry-overlay-root');
-        await overlay.locator('.trigger').click();
+        const trigger = overlay.locator('.trigger');
+        assert.equal(await trigger.evaluate((button) => getComputedStyle(button).opacity), '0');
+        assert.equal(await trigger.evaluate((button) => getComputedStyle(button).pointerEvents), 'none');
+        await page.keyboard.press('Alt+Shift+r');
+        assert.equal(await overlay.locator('.timeline').isVisible(), true);
+        await page.keyboard.press('Escape');
+        assert.equal(await overlay.locator('.timeline').isHidden(), true);
+        await page.mouse.move(viewport.width / 2, viewport.height - 34);
+        await until(() => trigger.evaluate((button) => button.classList.contains('is-revealed')), Boolean, 'hover-revealed trigger');
+        await trigger.click();
         await until(() => overlay.locator('.dot').count(), (count) => count === 4, 'in-preview iteration dots');
         await overlay.locator('.dot').nth(0).click();
         assert.equal(await overlay.locator('.missing').isVisible(), true);
@@ -164,6 +173,12 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
         assert.equal(fits, true);
         await page.close();
       }
+      const touchPage = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+      await touchPage.goto(previewUrl, { waitUntil: 'networkidle' });
+      await touchPage.touchscreen.tap(195, 810);
+      await until(() => touchPage.locator('#rewindry-overlay-root .timeline').isVisible(), Boolean, 'touch-opened timeline');
+      await touchPage.close();
+
       const longHistory = await browser.newPage({ viewport: { width: 390, height: 844 } });
       const checkpoints = Array.from({ length: 1_000 }, (_, index) => ({
         id: `point-${index}`,
@@ -177,7 +192,7 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
       }));
       await longHistory.goto(previewUrl, { waitUntil: 'networkidle' });
       const overlay = longHistory.locator('#rewindry-overlay-root');
-      await overlay.locator('.trigger').click();
+      await longHistory.keyboard.press('Alt+Shift+r');
       await until(() => overlay.locator('.dot').count(), (count) => count === 1_001, 'long timeline');
       await longHistory.keyboard.press('Home');
       assert.equal(await overlay.locator('.dot').first().getAttribute('aria-current'), 'step');

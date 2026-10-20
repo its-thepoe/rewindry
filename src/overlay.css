@@ -4,7 +4,8 @@ button { font: inherit; cursor: pointer; }
 button:focus-visible { outline: 2px solid #63c6c2; outline-offset: 3px; }
 button:disabled { cursor: default; opacity: .38; }
 [hidden] { display: none !important; }
-.trigger { position: fixed; z-index: 2147483646; left: 50%; bottom: 16px; transform: translateX(-50%); width: 36px; height: 36px; border: 1px solid #536166; border-radius: 50%; background: #152228; color: #ec8567; box-shadow: 0 5px 20px #0005; }
+.trigger { position: fixed; z-index: 2147483646; left: 50%; bottom: 16px; transform: translateX(-50%); width: 36px; height: 36px; border: 1px solid #536166; border-radius: 50%; background: #152228; color: #ec8567; box-shadow: 0 5px 20px #0005; opacity: 0; pointer-events: none; transition: opacity 200ms ease; }
+.trigger.is-revealed, .trigger:focus-visible { opacity: 1; pointer-events: auto; }
 .timeline { position: fixed; z-index: 2147483647; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content; max-width: min(680px, calc(100vw - 24px)); height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 5px; border: 1px solid #d9dddd; border-radius: 22px; background: #fff; color: #17191a; box-shadow: 0 5px 18px #17222720; }
 .control { flex: none; width: 30px; height: 34px; border: 0; border-radius: 17px; background: transparent; color: #737777; font-size: 21px; line-height: 1; }
 .control.play, .control.close { font-size: 15px; color: #303637; }
@@ -28,5 +29,5 @@ button:disabled { cursor: default; opacity: .38; }
 .peek { position: fixed; z-index: 2147483647; bottom: 80px; width: 180px; padding: 5px; border: 1px solid #394a4e; border-radius: 6px; background: #152228; color: #f7faf9; box-shadow: 0 8px 24px #0005; pointer-events: none; }
 .peek img { display: block; width: 168px; height: 105px; object-fit: contain; background: #f6f8f8; }
 .peek-label { display: block; padding: 5px 3px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
-@media (hover: hover) and (pointer: fine) { .trigger:hover { background: #26373c; } .dot:not(.selected):hover::after { background: #9b9f9f; } }
-@media (prefers-reduced-motion: reduce) { .dot, .dot::after { transition: none; } .dot.selected::before { animation: none; opacity: 0; } }
+@media (hover: hover) and (pointer: fine) { .trigger:hover { background: #26373c; opacity: 1; } .dot:not(.selected):hover::after { background: #9b9f9f; } }
+@media (prefers-reduced-motion: reduce) { .trigger, .dot, .dot::after { transition: none; } .dot.selected::before { animation: none; opacity: 0; } }

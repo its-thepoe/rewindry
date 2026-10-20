@@ -1,6 +1,6 @@
 # Rewindry project status
 
-Updated: 11 October 2026
+Updated: 20 October 2026
 
 Legend: 🟢 done · 🟡 in progress · 🔴 blocked · ⚪ not started. A milestone is green only when its exit gate has evidence.
 
@@ -98,8 +98,8 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M5-03 | 🟢 | Source pre/post digest, generation-race rejection, overlay hiding and safe Chromium context pass; fresh-page fidelity limit is explicit |
 | M5-04 | 🟢 | Source-only/captured metadata, 4 MiB image and 256 MiB workspace limits, symlink checks and one bounded automatic Vite-start retry pass tests/E2E |
 | M5-05 | 🟢 | Cookie-isolated loopback source API, origin/mutation guards and authenticated SSE checkpoint feed pass tests |
-| M5-06 | 🟢 | Overlay visibly renders 6px segments and compact chevrons; measured active segment 24×6px and bar 198×42px |
-| M5-07 | 🟢 | Browser E2E after sizing change verifies focus/keyboard selection, play/pause, desktop/mobile fit and 1,000-point overflow navigation |
+| M5-06 | 🟢 | Prior measurements show 6px segments, a 24×6px active segment and a 198×42px bar. Browser E2E now verifies the trigger is transparent/click-through at rest, reveals at the bottom edge, and opens by tap or `Alt+Shift+R`. |
+| M5-07 | 🟢 | Browser E2E verifies focus/keyboard selection, `Alt+Shift+R` toggle and Escape close, play/pause, desktop/mobile fit, touch access and 1,000-point navigation. |
 | M5-08 | 🟢 | Standalone viewer visibly matches the 6px segments and compact controls; measured active segment 24×6px and bar 226×42px |
 | M5-09 | 🟢 | Real Codex-plus-Vite probe captured the final `State B` UI; automatic-Vite two-turn E2E proves distinct immutable images, exact source bytes, read-only overlay and production exclusion |
 | M5-10 | 🟡 | `case-files` Vite listens on `[::1]:3100`; Rewindry had advertised unreachable `127.0.0.1:3100`. Published `0.1.3` now registers `http://[::1]:3100/`, and the preview endpoint responds with `readiness: idle`; a real captured screenshot remains to be verified. |
@@ -120,7 +120,8 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-10 | 🟢 | `rewindry@0.1.2` release setup succeeded and `status` reported active capture in the reported `case-files` project; superseded by `0.1.3`. |
 | M6-11 | 🟢 | `0.1.3` is published as npm `latest`; IPv4/IPv6 regression tests and visual E2E pass, and the reported project restarted with the expected IPv6 preview URL. |
 | M6-12 | 🟢 | Daemon per-connection socket error handling and disconnect regression pass; `0.1.4` package checks pass and npm accepted the public publish with the `latest` tag after Touch ID web approval. The public npm package page confirms version `0.1.4`. |
-| M6-13 | 🟢 | Public root README covers install, verified environment/agent matrix, local data, fidelity limits, diagnostics, viewer and uninstall. `npm pack --dry-run` confirms README and license are included. The immutable `0.1.4` npm release predates the README; publish a subsequent version to update the npm listing. |
+| M6-13 | 🟢 | Public root README covers install, verified environment/agent matrix, local data, fidelity limits, diagnostics, viewer and uninstall. It now documents the on-demand trigger; `npm pack --dry-run` confirms README and license are included in `0.1.5`. |
+| M6-14 | 🟡 | `0.1.5` includes the on-demand trigger and keyboard shortcut; typecheck, 80 unit tests, browser E2E and CLI dry-run pass. Source push and npm registry publication remain. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work
@@ -166,7 +167,7 @@ Statuses below refer to the numbered criteria in `DOCS/rewindry_mvp_prd.md` sect
 | 16 No self-capture | 🟢 | Observer excludes `.rewindry`, generated directories and private paths. |
 | 17 Final-only capture job | 🟢 | Runtime queue and automatic-Vite browser tests show one job per final changed turn. |
 | 18 Source-bound screenshot | 🟢 | Digest/server-generation race tests reject mismatched visuals; source-only fallback is shown. |
-| 19 Dev-only read-only timeline | 🟢 | Desktop/mobile browser E2E verifies playback, scrub, history and no source mutation. |
+| 19 Dev-only read-only timeline | 🟢 | Browser E2E verifies the hidden/click-through trigger, hover reveal, `Alt+Shift+R`, touch access, playback, scrub, read-only history and no source mutation. |
 | 20 Production exclusion | 🟢 | Browser E2E verifies production build omits overlay and control endpoints. |
 | 21 Offline standalone viewer | 🟢 | Standalone viewer browser flow shows existing screenshots and code without dev server. |
 | 22 Read-only Git ancestry | 🟢 | Dirty-worktree/shallow Git tests and viewer browser E2E pass without changing refs/source. |
