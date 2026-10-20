@@ -19,10 +19,10 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | `0.1.3` setup and status report active capture in `case-files`; daemon now isolates dropped-client socket errors and the disconnect regression passes. OS sleep/wake, reboot and real permission-denial checks remain. |
 | M5 / G5 Visual capture and timeline | 🟡 in progress | Published `0.1.3` now registers the Vite IPv6 loopback URL; the real project's preview endpoint responds. A captured visual from the restarted project is still unverified. |
-| M6 / G6 Code, Git and release | 🟡 in progress | Public npm package page shows `rewindry@0.1.4`; the public root README is complete and included by the package build. The npm listing will receive it with the next version. Broader host/platform matrix and external observations remain. |
+| M6 / G6 Code, Git and release | 🟡 in progress | `rewindry@0.1.5` is published as npm `latest`, and the registry confirms the version. The public root README is complete and included by the package build. Broader host/platform matrix and external observations remain. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
-| Revised G3 first public release | 🔴 blocked | npm accepted public release `0.1.4`; the product gate still needs external real-project navigation observations and broader release validation. |
+| Revised G3 first public release | 🔴 blocked | npm release `0.1.5` is public; the product gate still needs external real-project navigation observations and broader release validation. |
 
 ## M0 — Feasibility spikes
 
@@ -121,7 +121,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-11 | 🟢 | `0.1.3` is published as npm `latest`; IPv4/IPv6 regression tests and visual E2E pass, and the reported project restarted with the expected IPv6 preview URL. |
 | M6-12 | 🟢 | Daemon per-connection socket error handling and disconnect regression pass; `0.1.4` package checks pass and npm accepted the public publish with the `latest` tag after Touch ID web approval. The public npm package page confirms version `0.1.4`. |
 | M6-13 | 🟢 | Public root README covers install, verified environment/agent matrix, local data, fidelity limits, diagnostics, viewer and uninstall. It now documents the on-demand trigger; `npm pack --dry-run` confirms README and license are included in `0.1.5`. |
-| M6-14 | 🟡 | `0.1.5` includes the on-demand trigger and keyboard shortcut; typecheck, 80 unit tests, browser E2E and CLI dry-run pass. Source commit `20b9213` is pushed to `origin/main`. Three npm publish attempts, including one preferring IPv4, timed out on the registry package `PUT`; `npm view rewindry@0.1.5` returns 404, so npm publication remains outstanding. |
+| M6-14 | 🟢 | `0.1.5` includes the on-demand trigger and keyboard shortcut; typecheck, 80 unit tests, browser E2E and CLI dry-run pass. Source commit `20b9213` is pushed to `origin/main`; npm accepted the public publish and fresh registry reads confirm both `rewindry@0.1.5` and `latest` are `0.1.5`. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work
@@ -141,7 +141,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 - PRD criteria 1–25 are mapped below. A passing mocked adapter does not count as real provider support.
 - Supported environments: observed macOS arm64 / Node 26.0.0 / React 19 / Vite 8.3.4 / Codex CLI 0.144.4; exact scope and caveats are in `DOCS/compatibility.md`.
 - Existing `DOCS/` files are currently untracked while root copies are marked deleted. Preserve that user state.
-- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, 100-write/60-second host stress case, sleep/reboot, external recovery observations, and remaining release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 produced two sequential exact checkpoints; the first covered three file edits and a 30-second in-turn pause. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E; this turn's local verification passes 80 unit tests, browser/Vite E2E, and typecheck. Public npm page shows `rewindry@0.1.4`, published with the `latest` tag. The prior `case-files` setup restarted with the IPv6 preview URL. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
+- Current gate: a persisted Cursor IDE edit-to-checkpoint probe, 100-write/60-second host stress case, sleep/reboot, external recovery observations, and remaining release validation. Cursor IDE 3.24.9 paired lifecycle hooks have real evidence; the latest edit probe ended with an unchanged fixture and no agent-turn checkpoint. Claude Code 2.1.296 produced two sequential exact checkpoints; the first covered three file edits and a 30-second in-turn pause. Hosted macOS CI passes clean installs for both lockfiles, typecheck, 74 tests, and visual E2E; this turn's local verification passes 80 unit tests, browser/Vite E2E, and typecheck. Public npm registry confirms `rewindry@0.1.5` as `latest`. The prior `case-files` setup restarted with the IPv6 preview URL. Real one-command setup/uninstall, two-workspace LaunchAgent install/restart/removal, Codex 0.144.4 plus Vite visual capture and automatic-Vite browser E2E pass.
 
 ## PRD release criteria
 
