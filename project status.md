@@ -121,7 +121,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M6-11 | 🟢 | `0.1.3` is published as npm `latest`; IPv4/IPv6 regression tests and visual E2E pass, and the reported project restarted with the expected IPv6 preview URL. |
 | M6-12 | 🟢 | Daemon per-connection socket error handling and disconnect regression pass; `0.1.4` package checks pass and npm accepted the public publish with the `latest` tag after Touch ID web approval. The public npm package page confirms version `0.1.4`. |
 | M6-13 | 🟢 | Public root README covers install, verified environment/agent matrix, local data, fidelity limits, diagnostics, viewer and uninstall. It now documents the on-demand trigger; `npm pack --dry-run` confirms README and license are included in `0.1.5`. |
-| M6-14 | 🟡 | `0.1.5` includes the on-demand trigger and keyboard shortcut; typecheck, 80 unit tests, browser E2E and CLI dry-run pass. Source push and npm registry publication remain. |
+| M6-14 | 🟡 | `0.1.5` includes the on-demand trigger and keyboard shortcut; typecheck, 80 unit tests, browser E2E and CLI dry-run pass. Source commit `20b9213` is pushed to `origin/main`. Two npm publish attempts timed out on the registry package `PUT`; `npm view rewindry@0.1.5` returns 404, so npm publication remains outstanding. |
 | M6-09 | 🟢 | PRD criteria 1–25 mapped below to observed, synthetic or missing evidence |
 
 ## Proposed addendum work
