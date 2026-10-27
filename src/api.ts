@@ -12,6 +12,20 @@ import { safePreviewFile } from './preview-files.ts';
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const CHECKPOINT_ID = /^[a-f0-9-]{36}$/;
 const VISUAL_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
+const HEX_DIGEST = /^[a-f0-9]{64}$/;
+const MAX_COMPONENT_KEY = 512;
+
+type StepSummary = { action?: unknown; key?: unknown; target?: { by?: unknown; name?: unknown; value?: unknown }[] };
+
+// A readable name for a learned state: its URL, plus what the last step clicked when it took clicks to reach.
+function stateLabel(route: string, path: unknown[]): string {
+  const last = path.at(-1) as StepSummary | undefined;
+  if (!last) return route;
+  if (last.action === 'key') return `${route} · after ${String(last.key)}`;
+  const target = last.target?.find((item) => item.by !== 'css') ?? last.target?.[0];
+  const name = typeof target?.name === 'string' ? target.name : typeof target?.value === 'string' ? target.value : 'a click';
+  return `${route} · after “${name.slice(0, 60)}”`;
+}
 
 export class ViewerServer {
   private server?: Server;
@@ -124,6 +138,45 @@ export class ViewerServer {
         });
         return this.json(response, { checkpoints, live: { label: 'Current working state', ...(this.liveUrl ? { url: this.liveUrl } : {}) } });
       }
+      if (url.pathname === '/history') return this.asset(response, 'history.html', 'text/html; charset=utf-8');
+      if (url.pathname === '/history.css') return this.asset(response, 'history.css', 'text/css; charset=utf-8');
+      if (url.pathname === '/history.js') return this.asset(response, 'history.js', 'text/javascript; charset=utf-8');
+      if (url.pathname === '/api/history') return this.json(response, this.historySummary());
+      if (url.pathname === '/api/history/frames') {
+        const stateId = url.searchParams.get('state') ?? '';
+        const profileId = url.searchParams.get('profile');
+        if (!CHECKPOINT_ID.test(stateId) || (profileId !== null && !VISUAL_ID.test(profileId))) return this.respond(response, 400, 'Invalid history filter');
+        const iterations = this.iterations();
+        return this.json(response, { frames: this.store.listScreenFrames(stateId, profileId ?? undefined).map((frame) => ({
+          checkpointId: frame.checkpointId, ...iterations.get(frame.checkpointId), profileId: frame.profileId, status: frame.status,
+          captureMode: frame.captureMode,
+          ...(frame.reason ? { reason: frame.reason } : {}),
+          ...(frame.unchangedFrom ? { unchangedFrom: frame.unchangedFrom, unchangedFromIteration: iterations.get(frame.unchangedFrom)?.iteration } : {}),
+          ...(frame.imageDigest ? { imageUrl: `/api/visuals/${frame.imageDigest}.png` } : {}),
+        })) });
+      }
+      if (url.pathname === '/api/history/components') {
+        const key = url.searchParams.get('key') ?? '';
+        const profileId = url.searchParams.get('profile');
+        const stateId = url.searchParams.get('state');
+        if (!key || key.length > MAX_COMPONENT_KEY || (profileId !== null && !VISUAL_ID.test(profileId)) ||
+            (stateId !== null && !CHECKPOINT_ID.test(stateId))) return this.respond(response, 400, 'Invalid history filter');
+        const iterations = this.iterations();
+        const versions = this.store.listComponentVersions(key, profileId ?? undefined)
+          .filter((version) => stateId === null || version.stateId === stateId);
+        return this.json(response, { versions: versions.map((version) => ({
+          checkpointId: version.checkpointId, ...iterations.get(version.checkpointId), stateId: version.stateId,
+          profileId: version.profileId, occurrence: version.occurrence, box: version.box,
+          ...(version.unchangedFrom ? { unchangedFrom: version.unchangedFrom, unchangedFromIteration: iterations.get(version.unchangedFrom)?.iteration } : {}),
+          imageUrl: `/api/visuals/${version.cropDigest}.png`,
+        })) });
+      }
+      const visualMatch = /^\/api\/visuals\/([a-f0-9]{64})\.png$/.exec(url.pathname);
+      if (visualMatch) {
+        const digest = visualMatch[1]!;
+        if (!HEX_DIGEST.test(digest) || !this.store.visualReferenced(digest)) return this.respond(response, 404, 'Visual unavailable');
+        return this.respond(response, 200, this.store.readVisual(digest), 'image/png');
+      }
       if (url.pathname === '/api/git') return this.json(response, readGitHistory(this.root));
       const filesMatch = /^\/api\/checkpoints\/([^/]+)\/files$/.exec(url.pathname);
       if (filesMatch) {
@@ -187,6 +240,31 @@ export class ViewerServer {
     }
   }
 
+  // Iteration numbers match the main timeline: the Nth recorded checkpoint is "Iteration N".
+  private iterations(): Map<string, { iteration: number; createdAt: string; kind: string }> {
+    return new Map(this.store.list().map((checkpoint, index) =>
+      [checkpoint.id, { iteration: index + 1, createdAt: checkpoint.createdAt, kind: checkpoint.kind }]));
+  }
+
+  private historySummary() {
+    const summary = this.store.historySummary();
+    const counts = new Map(summary.states.map((item) => [item.stateId, item]));
+    return {
+      profiles: summary.profiles,
+      states: this.store.listUiStates().filter((state) => counts.has(state.id)).map((state) => ({
+        id: state.id, route: state.route, label: stateLabel(state.route, state.path), origin: state.origin, status: state.status,
+        steps: state.path.length, frames: counts.get(state.id)!.frames, changed: counts.get(state.id)!.changed,
+      })),
+      components: summary.components.map((item) => {
+        const split = item.componentKey.lastIndexOf('#');
+        return {
+          key: item.componentKey, file: item.componentKey.slice(0, split), component: item.componentKey.slice(split + 1),
+          versions: item.versions, changed: item.changed, states: item.states,
+        };
+      }),
+    };
+  }
+
   private authorized(request: IncomingMessage): boolean {
     const value = /(?:^|;\s*)rewindry=([^;]+)/.exec(request.headers.cookie ?? '')?.[1];
     if (!value || value.length !== this.token.length) return false;
@@ -209,7 +287,8 @@ export class ViewerServer {
   }
 
   private historySignature(): string {
-    return this.store.list().map((checkpoint) => `${checkpoint.id}:${this.preview(checkpoint.id)?.status ?? 'source_only'}`).join('|');
+    const frames = this.store.historySummary().states.reduce((total, item) => total + item.frames, 0);
+    return `${this.store.list().map((checkpoint) => `${checkpoint.id}:${this.preview(checkpoint.id)?.status ?? 'source_only'}`).join('|')}#${frames}`;
   }
 
   private broadcastChanges(): void {

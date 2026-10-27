@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Rewindry history</title>
+    <link rel="stylesheet" href="./history.css" />
+    <script src="./history.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand" aria-label="Rewindry">rewindry<span class="brand-dot">.</span></div>
+        <nav class="topbar-actions" aria-label="Views">
+          <span id="status" class="status" role="status">Loading history</span>
+          <a class="nav-link" href="/">Timeline</a>
+          <button id="refresh" class="icon-button" type="button" title="Refresh history" aria-label="Refresh history">↻</button>
+        </nav>
+      </header>
+
+      <main class="history">
+        <div class="controls">
+          <div class="zoom" role="group" aria-label="Zoom level">
+            <button id="zoom-component" class="zoom-button is-active" type="button" aria-pressed="true">Component</button>
+            <button id="zoom-screen" class="zoom-button" type="button" aria-pressed="false">Screen</button>
+          </div>
+          <div class="field" id="component-field">
+            <label for="component-select">Component</label>
+            <select id="component-select"></select>
+          </div>
+          <div class="field">
+            <label for="state-select">Screen</label>
+            <select id="state-select"></select>
+          </div>
+          <div class="field">
+            <label for="profile-select">Breakpoint</label>
+            <select id="profile-select"></select>
+          </div>
+        </div>
+
+        <p id="note" class="note" hidden></p>
+
+        <section class="stage" aria-live="polite">
+          <div id="stage-message" class="stage-message">Loading history…</div>
+          <div id="stage-items" class="stage-items" hidden></div>
+        </section>
+
+        <section class="filmstrip-region" aria-labelledby="filmstrip-heading">
+          <div class="filmstrip-head">
+            <h2 id="filmstrip-heading">Versions</h2>
+            <span id="filmstrip-summary" class="summary"></span>
+          </div>
+          <ol id="filmstrip" class="filmstrip"></ol>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

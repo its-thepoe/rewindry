@@ -355,10 +355,15 @@ async function refresh() {
     if (!Array.isArray(result.checkpoints)) throw new Error('Invalid history');
     state.checkpoints = result.checkpoints.filter((point) => typeof point.id === 'string');
     state.live = result.live && typeof result.live === 'object' ? result.live : { label: 'Current working state' };
+    // The screen history links here as #checkpoint=<id> to open that iteration's code.
+    const linked = /^#checkpoint=([a-f0-9-]{36})$/.exec(window.location.hash)?.[1];
+    const linkedIndex = linked ? points().findIndex((point) => point.id === linked) : -1;
+    if (linked) history.replaceState(null, '', window.location.pathname);
     const oldIndex = points().findIndex((point) => point.id === previous);
-    state.selected = oldIndex >= 0 ? oldIndex : points().length - 1;
+    state.selected = linkedIndex >= 0 ? linkedIndex : oldIndex >= 0 ? oldIndex : points().length - 1;
     elements.status.textContent = state.checkpoints.length ? 'History ready' : 'No recorded iterations yet';
     renderPoint(true);
+    if (linkedIndex >= 0) openCode();
     void loadGit();
   } catch {
     elements.status.textContent = 'History unavailable';

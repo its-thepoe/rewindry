@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { ViewerServer } from '../../src/api.ts';
 import { decodePng } from '../../src/png.ts';
 import { RewindryRuntime } from '../../src/runtime.ts';
 import { LANDING_SET } from '../../src/ui-states.ts';
@@ -126,6 +127,73 @@ test('a dialog learned once keeps its own per-breakpoint history after the brows
     assert.deepEqual(pixel(desktopCrop, 8, desktopCrop.height - 4), [0xfd, 0xe6, 0x8a]);
     const frame = decodePng(runtime.store.readVisual(runtime.store.listScreenFrames(dialogState.id, 'mobile')[0]!.imageDigest!));
     assert.equal(frame.width, 780, 'mobile frames render at 390 CSS px × 2');
+
+    // The history browser: component, screen and screen-at-breakpoint zoom over the same captures.
+    const viewer = new ViewerServer(root, runtime.store);
+    const reviewer = await chromium.launch({ headless: true });
+    try {
+      const unlock = await viewer.start();
+      for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+        const page = await reviewer.newPage({ viewport });
+        await page.goto(unlock);
+        await page.getByRole('link', { name: 'Screens' }).click();
+        await page.waitForURL('**/history');
+        const cards = page.locator('.filmstrip .frame');
+        const component = page.getByLabel('Component', { exact: true });
+        await component.waitFor();
+        await component.selectOption({ label: await component.locator('option', { hasText: 'ItemDialog' }).innerText() });
+        await page.getByLabel('Breakpoint').selectOption('mobile');
+        await page.waitForFunction(() => document.querySelectorAll('.filmstrip .frame').length === 2);
+        // Only real changes: iterations 2 and 3. Iteration 4 (comment only) is hidden as unchanged.
+        assert.deepEqual(await cards.locator('span').allInnerTexts(), ['Iteration 2', 'Iteration 3']);
+        assert.match(await page.locator('#filmstrip-summary').innerText(), /2 versions · 1 unchanged update hidden/);
+        assert.equal(await page.getByLabel('Screen').inputValue(), dialogState.id);
+        const shown = page.locator('.stage-items img');
+        assert.equal(await shown.count(), 1);
+        assert.match(await shown.getAttribute('alt') ?? '', /Iteration 3, Mobile/);
+        const natural = await shown.evaluate((image: HTMLImageElement) => image.complete ? image.naturalWidth : new Promise((done) => { image.onload = () => done(image.naturalWidth); }));
+        assert.equal(natural, mobileCrop.width, 'the stage shows the component crop, not the whole screen');
+
+        await page.getByLabel('Breakpoint').selectOption('');
+        await page.waitForFunction(() => document.querySelectorAll('.filmstrip .frame').length === 6);
+
+        // Keyboard: arrows move along the filmstrip.
+        await cards.first().focus();
+        await page.keyboard.press('ArrowRight');
+        assert.equal(await cards.nth(1).getAttribute('aria-pressed'), 'true');
+
+        // Compare two versions side by side.
+        await page.getByRole('button', { name: /Compare iteration 2, Mobile/ }).click();
+        await page.getByRole('button', { name: /Compare iteration 3, Mobile/ }).click();
+        await page.waitForFunction(() => document.querySelectorAll('.stage-items figure').length === 2);
+        // Optional evidence for a human look at the layout.
+        const shots = process.env.REWINDRY_E2E_SCREENSHOTS;
+        if (shots) await page.screenshot({ path: join(shots, `history-compare-${viewport.width}.png`), fullPage: true });
+        assert.deepEqual(await page.locator('.stage-items figcaption strong').allInnerTexts(), ['Iteration 2', 'Iteration 3']);
+
+        // Screen zoom, then screen at one breakpoint.
+        await page.getByRole('button', { name: 'Screen', exact: true }).click();
+        await page.getByLabel('Screen').selectOption(dialogState.id);
+        await page.getByLabel('Breakpoint').selectOption('desktop');
+        await page.waitForFunction(() => document.querySelectorAll('.filmstrip .frame').length === 2);
+        assert.match(await page.locator('.filmstrip .frame small').first().innerText(), /^Desktop/);
+        const screenImage = await page.locator('.stage-items img').evaluate((image: HTMLImageElement) => image.complete ? image.naturalWidth : new Promise((done) => { image.onload = () => done(image.naturalWidth); }));
+        assert.equal(screenImage, 1280, 'screen zoom shows the full desktop frame');
+
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        assert.equal(overflow, 0, `no horizontal page scroll at ${viewport.width}px`);
+
+        // Code at this iteration opens the main viewer on that checkpoint with the code panel.
+        await page.getByRole('link', { name: 'Code at this iteration' }).click();
+        await page.waitForURL((url) => url.pathname === '/');
+        await page.locator('#code-panel:not([hidden])').waitFor();
+        assert.equal(await page.locator('#point-title').innerText(), 'Iteration 3');
+        await page.close();
+      }
+    } finally {
+      await reviewer.close();
+      await viewer.close();
+    }
   } finally {
     await runtime.close();
     server.kill();

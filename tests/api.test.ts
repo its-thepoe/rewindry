@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -261,6 +262,91 @@ test('viewer API labels replayed visuals and leaves live and legacy payloads unc
     const replayedEntry = body.checkpoints.find((item) => item.id === replayed.id)!;
     assert.equal(replayedEntry.previewCaptureMode, 'replayed');
     assert.equal(replayedEntry.targets[0]?.captureMode, 'replayed');
+  } finally {
+    await viewer.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('screen history API is authenticated, GET-only and serves only referenced visuals', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-history-api-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'Dialog.tsx'), 'v1');
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const first = store.snapshot('baseline');
+  writeFileSync(join(root, 'src', 'Dialog.tsx'), 'v2');
+  const second = store.snapshot('agent_turn', 'turn-1');
+  assert.ok(first && second);
+  const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+  const dialog = store.upsertUiState({ origin: 'learned', route: '/?welcome=1', componentSet: hash('dialog'), components: ['src/Dialog.tsx#Dialog'],
+    path: [{ action: 'click', target: [{ by: 'role', role: 'button', name: 'Close welcome', index: 0 }] }, { action: 'click', target: [{ by: 'css', value: 'main > button', index: 0 }, { by: 'role', role: 'button', name: 'Item 2', index: 0 }] }] });
+  const frameA = store.writeVisual(Buffer.from('frame-a'));
+  const frameB = store.writeVisual(Buffer.from('frame-b'));
+  const cropA = store.writeVisual(Buffer.from('crop-a'));
+  const cropB = store.writeVisual(Buffer.from('crop-b'));
+  const stray = store.writeVisual(Buffer.from('not referenced'));
+  const box = { x: 10, y: 20, width: 100, height: 50 };
+  store.recordScreenFrame({ checkpointId: first.id, stateId: dialog.id, profileId: 'mobile', status: 'captured', captureMode: 'live', imageDigest: frameA,
+    components: [{ componentKey: 'src/Dialog.tsx#Dialog', occurrence: 0, cropDigest: cropA, box }] });
+  store.recordScreenFrame({ checkpointId: second.id, stateId: dialog.id, profileId: 'mobile', status: 'captured', captureMode: 'live', imageDigest: frameB,
+    components: [{ componentKey: 'src/Dialog.tsx#Dialog', occurrence: 0, cropDigest: cropB, box }] });
+  store.recordScreenFrame({ checkpointId: second.id, stateId: dialog.id, profileId: 'desktop', status: 'path_broken', captureMode: 'live', reason: 'Step 2 of 2: no recorded locator matched' });
+  const viewer = new ViewerServer(root, store);
+  try {
+    const unlockUrl = await viewer.start();
+    const base = new URL(unlockUrl).origin;
+    for (const path of ['/api/history', `/api/history/frames?state=${dialog.id}`, `/api/visuals/${frameA}.png`, '/history']) {
+      assert.equal((await fetch(`${base}${path}`)).status, 401, path);
+    }
+    const cookie = (await fetch(unlockUrl, { redirect: 'manual' })).headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie);
+    const headers = { Cookie: cookie };
+    const get = (path: string) => fetch(`${base}${path}`, { headers });
+
+    const page = await get('/history');
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /history\.js/);
+    assert.equal((await get('/history.js')).status, 200);
+
+    const summary = await (await get('/api/history')).json() as {
+      profiles: string[]; states: { id: string; label: string; steps: number; frames: number; changed: number; status: string }[];
+      components: { key: string; file: string; component: string; changed: number; states: number }[];
+    };
+    assert.deepEqual(summary.profiles, ['desktop', 'mobile']);
+    assert.deepEqual(summary.states, [{ id: dialog.id, route: '/?welcome=1', label: '/?welcome=1 · after “Item 2”', origin: 'learned', status: 'active', steps: 2, frames: 3, changed: 2 }]);
+    assert.deepEqual(summary.components, [{ key: 'src/Dialog.tsx#Dialog', file: 'src/Dialog.tsx', component: 'Dialog', versions: 2, changed: 2, states: 1 }]);
+
+    const frames = await (await get(`/api/history/frames?state=${dialog.id}&profile=mobile`)).json() as { frames: Record<string, unknown>[] };
+    assert.deepEqual(frames.frames.map((frame) => [frame.iteration, frame.kind, frame.status, frame.imageUrl]), [
+      [1, 'baseline', 'captured', `/api/visuals/${frameA}.png`], [2, 'agent_turn', 'captured', `/api/visuals/${frameB}.png`],
+    ]);
+    const all = await (await get(`/api/history/frames?state=${dialog.id}`)).json() as { frames: Record<string, unknown>[] };
+    assert.deepEqual(all.frames.find((frame) => frame.status === 'path_broken'), {
+      checkpointId: second.id, iteration: 2, createdAt: second.createdAt, kind: 'agent_turn', profileId: 'desktop',
+      status: 'path_broken', captureMode: 'live', reason: 'Step 2 of 2: no recorded locator matched',
+    });
+    const versions = await (await get(`/api/history/components?key=${encodeURIComponent('src/Dialog.tsx#Dialog')}&state=${dialog.id}&profile=mobile`)).json() as { versions: Record<string, unknown>[] };
+    assert.deepEqual(versions.versions.map((version) => [version.iteration, version.imageUrl, version.box]), [
+      [1, `/api/visuals/${cropA}.png`, box], [2, `/api/visuals/${cropB}.png`, box],
+    ]);
+    assert.deepEqual((await (await get('/api/history/components?key=src%2FOther.tsx%23Other')).json()), { versions: [] });
+
+    const image = await get(`/api/visuals/${cropB}.png`);
+    assert.equal(image.status, 200);
+    assert.equal(image.headers.get('content-type'), 'image/png');
+    assert.equal(await image.text(), 'crop-b');
+    assert.equal((await get(`/api/visuals/${stray}.png`)).status, 404, 'an unreferenced file in visuals/ is never served');
+    assert.equal((await get('/api/visuals/../index.sqlite')).status, 404);
+    for (const path of ['/api/history/frames?state=not-a-state', `/api/history/frames?state=${dialog.id}&profile=Mobile!`,
+      `/api/history/components?key=${'x'.repeat(513)}`, '/api/history/components', `/api/history/components?key=a%23B&state=bad`]) {
+      assert.equal((await get(path)).status, 400, path);
+    }
+    assert.equal((await fetch(`${base}/api/history`, { method: 'POST', headers })).status, 405);
+
+    // The legacy timeline payload is unchanged by screen history.
+    const legacy = await (await get('/api/checkpoints')).json() as { checkpoints: Record<string, unknown>[] };
+    assert.deepEqual(Object.keys(legacy.checkpoints[0]!).sort(), ['createdAt', 'id', 'kind', 'previewStatus', 'targets']);
   } finally {
     await viewer.close();
     rmSync(root, { recursive: true, force: true });

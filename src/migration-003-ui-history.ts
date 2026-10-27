@@ -35,6 +35,7 @@ export function migrateUiHistory(db: DatabaseSync): void {
         CHECK ((status = 'unchanged') = (unchanged_from IS NOT NULL))
       );
       CREATE INDEX screen_frames_history ON screen_frames(state_id, profile_id, checkpoint_id);
+      CREATE INDEX screen_frames_image ON screen_frames(image_digest);
       CREATE TABLE component_versions (
         checkpoint_id TEXT NOT NULL,
         state_id TEXT NOT NULL,
@@ -48,6 +49,7 @@ export function migrateUiHistory(db: DatabaseSync): void {
         FOREIGN KEY (checkpoint_id, state_id, profile_id) REFERENCES screen_frames(checkpoint_id, state_id, profile_id)
       );
       CREATE INDEX component_versions_history ON component_versions(component_key, profile_id, checkpoint_id);
+      CREATE INDEX component_versions_crop ON component_versions(crop_digest);
     `);
     db.exec('PRAGMA user_version = 3; COMMIT');
   } catch (error) {

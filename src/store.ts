@@ -474,6 +474,34 @@ export class WorkspaceStore {
     return latest;
   }
 
+  // Aggregates for the history browser: what has history, and how many real (changed) versions.
+  historySummary(): {
+    states: { stateId: string; frames: number; changed: number }[];
+    components: { componentKey: string; versions: number; changed: number; states: number; lastChangedRow: number }[];
+    profiles: string[];
+  } {
+    const db = this.database();
+    const states = db.prepare(`SELECT state_id AS stateId, COUNT(*) AS frames, SUM(status = 'captured') AS changed
+      FROM screen_frames GROUP BY state_id`).all() as { stateId: string; frames: number; changed: number }[];
+    const components = db.prepare(`
+      SELECT component_key AS componentKey, COUNT(*) AS versions, SUM(unchanged_from IS NULL) AS changed,
+        COUNT(DISTINCT state_id) AS states, MAX(CASE WHEN unchanged_from IS NULL THEN checkpoints.rowid END) AS lastChangedRow
+      FROM component_versions JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
+      GROUP BY component_key ORDER BY lastChangedRow DESC, component_key
+    `).all() as { componentKey: string; versions: number; changed: number; states: number; lastChangedRow: number }[];
+    const profiles = (db.prepare("SELECT DISTINCT profile_id FROM screen_frames ORDER BY profile_id").all() as { profile_id: string }[])
+      .map((row) => row.profile_id);
+    return { states, components, profiles };
+  }
+
+  // Only images that a recorded frame or component version points at are ever served.
+  visualReferenced(digest: string): boolean {
+    if (!HEX_SHA256.test(digest)) return false;
+    const db = this.database();
+    return !!db.prepare("SELECT 1 FROM screen_frames WHERE image_digest = ? LIMIT 1").get(digest) ||
+      !!db.prepare("SELECT 1 FROM component_versions WHERE crop_digest = ? LIMIT 1").get(digest);
+  }
+
   visualStorageBytes(): number {
     const directory = join(this.storage, "visuals");
     if (!existsSync(directory)) return 0;
