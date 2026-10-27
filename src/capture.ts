@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Browser, BrowserContext } from 'playwright';
 import type { Checkpoint, WorkspaceStore } from './store.ts';
 
@@ -35,6 +35,8 @@ export type PreviewTargetRecord = {
   status: 'captured' | 'source_only';
   reason?: string;
   imageFile?: string;
+  captureMode?: 'replayed';
+  replayedAt?: string;
 };
 export type PreviewRecord = {
   checkpointId: string;
@@ -64,7 +66,7 @@ type CaptureRequest = {
 };
 export type PageCapture = (url: string, request: CaptureRequest) => Promise<Buffer>;
 type CaptureSession = { capture(url: string, request: CaptureRequest): Promise<Buffer>; close(): Promise<void> };
-type CaptureOptions = {
+export type CaptureOptions = {
   previewUrl: string;
   appId: string;
   route?: string;
@@ -72,6 +74,12 @@ type CaptureOptions = {
   targets?: unknown;
   capturePage?: PageCapture;
   retrySourceOnly?: boolean;
+};
+export type BackfillCaptureOptions = Omit<CaptureOptions, 'previewUrl'> & {
+  previewUrl?: string;
+  identityPath?: string;
+  unavailableReason?: string;
+  replayedAt?: string;
 };
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 256 * 1024 * 1024;
@@ -106,8 +114,8 @@ function localPreview(url: string): URL {
   return parsed;
 }
 
-async function identity(base: URL): Promise<PreviewIdentity> {
-  const endpoint = new URL('/__rewindry/preview', base);
+async function identity(base: URL, identityPath = '/__rewindry/preview'): Promise<PreviewIdentity> {
+  const endpoint = new URL(identityPath, base);
   const response = await fetch(endpoint, { signal: AbortSignal.timeout(3_000), redirect: 'error' });
   if (!response.ok) throw new Error(`Preview identity HTTP ${response.status}`);
   const value = await response.json() as Partial<PreviewIdentity>;
@@ -134,7 +142,7 @@ function normalizedId(value: unknown, name: string): string {
   return value;
 }
 
-function normalizeTargets(options: CaptureOptions): PreviewTargetConfig[] {
+function normalizeTargets(options: Pick<CaptureOptions, 'route' | 'viewport' | 'targets'>): PreviewTargetConfig[] {
   if (options.targets === undefined) {
     const viewport = options.viewport ?? { width: 1280, height: 800 };
     return [{
@@ -426,5 +434,222 @@ export async function captureCheckpoint(
   const temporary = join(targetDirectory, `.${randomUUID()}.json`);
   writeFileSync(temporary, JSON.stringify(record), { flag: 'wx' });
   renameSync(temporary, recordPath);
+  return record;
+}
+
+function validImage(root: string, checkpointId: string, file: string | undefined): boolean {
+  if (!file || !['primary.png'].includes(file) && !/^[a-z0-9][a-z0-9-]{0,47}--[a-z0-9][a-z0-9-]{0,47}\.png$/.test(file)) return false;
+  const path = join(root, '.rewindry', 'previews', checkpointId, file);
+  return existsSync(path) && lstatSync(path).isFile() && lstatSync(path).size <= MAX_IMAGE_BYTES;
+}
+
+function atomicJson(path: string, value: unknown): string {
+  const temporary = join(dirname(path), `.${randomUUID()}.json`);
+  writeFileSync(temporary, JSON.stringify(value), { flag: 'wx' });
+  return temporary;
+}
+
+/**
+ * Captures and merges configured variants from an acknowledged historical replay.
+ * Successful saved pairs and all existing image bytes are treated as immutable.
+ */
+export async function captureBackfillVariants(
+  root: string,
+  store: { currentDigest(): string },
+  checkpoint: Checkpoint,
+  options: BackfillCaptureOptions,
+): Promise<PreviewRecord> {
+  if (!/^[a-f0-9-]{36}$/.test(checkpoint.id)) throw new Error('Invalid checkpoint ID');
+  const initialViewport = options.viewport ?? { width: 1280, height: 800 };
+  const recordPath = join(root, '.rewindry', 'previews', checkpoint.id, 'primary.json');
+  const previews = join(root, '.rewindry', 'previews');
+  previewDirectory(previews);
+  const targetDirectory = join(previews, checkpoint.id);
+  previewDirectory(targetDirectory);
+  const previousBytes = existsSync(recordPath) ? readFileSync(recordPath) : undefined;
+  const previous = previousBytes ? JSON.parse(previousBytes.toString('utf8')) as PreviewRecord : undefined;
+  const record: PreviewRecord = previous ? structuredClone(previous) : {
+    checkpointId: checkpoint.id,
+    status: 'source_only',
+    sourceDigest: checkpoint.digest,
+    appId: options.appId,
+    route: options.route ?? '/',
+    viewport: initialViewport,
+    fidelityLimits: ['Excluded dependencies, environment variables, network data and runtime state may affect pixels.'],
+  };
+  if (record.checkpointId && record.checkpointId !== checkpoint.id ||
+      record.sourceDigest && record.sourceDigest !== checkpoint.digest) {
+    throw new Error('Existing preview record does not match checkpoint source');
+  }
+  record.checkpointId = checkpoint.id;
+  record.sourceDigest = checkpoint.digest;
+  record.appId ||= options.appId;
+  record.fidelityLimits ??= [];
+
+  let configs: PreviewTargetConfig[];
+  try {
+    configs = normalizeTargets(options);
+  } catch (error) {
+    record.status = validImage(root, checkpoint.id, 'primary.png') || previewTargetRecords(record).some((target) =>
+      target.status === 'captured' && validImage(root, checkpoint.id, target.imageFile)) ? 'captured' : 'source_only';
+    record.reason = error instanceof Error ? error.message.slice(0, 512) : String(error).slice(0, 512);
+    const temporary = atomicJson(recordPath, record);
+    try { renameSync(temporary, recordPath); } finally { if (existsSync(temporary)) rmSync(temporary, { force: true }); }
+    return record;
+  }
+
+  const oldTargets = previous ? previewTargetRecords(record) : [];
+  const targets = oldTargets.map((target) => ({ ...target }));
+  record.targets = targets;
+  const key = (targetId: string, viewportId: string) => `${targetId}\u0000${viewportId}`;
+  const targetByKey = new Map(targets.map((target) => [key(target.targetId, target.viewportId), target]));
+  const now = options.replayedAt ?? new Date().toISOString();
+  const attempts: Array<{ target: PreviewTargetConfig; viewport: PreviewViewport; record: PreviewTargetRecord }> = [];
+
+  for (const target of configs) {
+    for (const viewport of target.viewports) {
+      const pairKey = key(target.id, viewport.id);
+      const old = targetByKey.get(pairKey);
+      if (old?.status === 'captured' && validImage(root, checkpoint.id, old.imageFile)) continue;
+      const targetRecord: PreviewTargetRecord = {
+        targetId: target.id,
+        targetLabel: target.label,
+        viewportId: viewport.id,
+        viewportLabel: viewport.label,
+        route: target.route,
+        ...(target.selector ? { selector: target.selector } : {}),
+        viewport: { width: viewport.width, height: viewport.height },
+        isMobile: viewport.isMobile,
+        hasTouch: viewport.hasTouch,
+        deviceScaleFactor: viewport.deviceScaleFactor,
+        status: 'source_only',
+        captureMode: 'replayed',
+        replayedAt: now,
+      };
+      if (old) {
+        Object.assign(old, targetRecord);
+        delete old.imageFile;
+        delete old.reason;
+        targetRecord.status = 'source_only';
+        targetByKey.set(pairKey, old);
+        attempts.push({ target, viewport, record: old });
+      } else {
+        targets.push(targetRecord);
+        targetByKey.set(pairKey, targetRecord);
+        attempts.push({ target, viewport, record: targetRecord });
+      }
+    }
+  }
+
+  if (attempts.length) {
+    const first = configs[0]!;
+    const firstViewport = first.viewports[0]!;
+    if (!previous) {
+      record.route = first.route;
+      record.viewport = { width: firstViewport.width, height: firstViewport.height };
+    }
+    const staged: Array<{ target: PreviewTargetRecord; bytes: Buffer }> = [];
+    let session: CaptureSession | undefined;
+    let base: URL | undefined;
+    let before: PreviewIdentity | undefined;
+    try {
+      if (options.unavailableReason) throw new Error(options.unavailableReason);
+      if (!options.previewUrl) throw new Error('Historical preview URL unavailable');
+      base = localPreview(options.previewUrl);
+      const targetUrls = new Map(configs.map((target) => {
+        const url = localPreview(new URL(target.route, base).toString());
+        if (url.origin !== base!.origin) throw new Error(`Preview route for ${target.id} changed origin`);
+        return [target.id, url] as const;
+      }));
+      before = await identity(base, options.identityPath);
+      if (before.appId !== options.appId) throw new Error('Preview app identity mismatch');
+      if (store.currentDigest() !== checkpoint.digest) throw new Error('Source moved before capture');
+      if (!options.capturePage) session = await createCaptureSession();
+      let usedBytes = previewUsage(previews);
+      for (const attempt of attempts) {
+        try {
+          const request = captureRequest(attempt.target, attempt.viewport);
+          const bytes = await (options.capturePage ?? session!.capture.bind(session))(
+            targetUrls.get(attempt.target.id)!.toString(), request,
+          );
+          if (bytes.length > MAX_IMAGE_BYTES) throw new Error('Screenshot exceeded the 4 MiB image limit');
+          if (usedBytes + bytes.length > MAX_PREVIEW_BYTES) throw new Error('Preview storage exceeded the 256 MiB image budget');
+          usedBytes += bytes.length;
+          attempt.record.status = 'captured';
+          staged.push({ target: attempt.record, bytes });
+        } catch (error) {
+          attempt.record.status = 'source_only';
+          attempt.record.reason = error instanceof Error ? error.message.slice(0, 512) : String(error).slice(0, 512);
+        }
+      }
+      const after = await identity(base, options.identityPath);
+      if (after.appId !== before.appId || after.serverId !== before.serverId || after.generation !== before.generation) {
+        throw new Error('Preview generation changed during capture');
+      }
+      if (store.currentDigest() !== checkpoint.digest) throw new Error('Source moved during capture');
+      if (staged.length) {
+        record.serverId ??= before.serverId;
+        record.generation ??= before.generation;
+        record.previewReadiness ??= after.readiness;
+        record.capturedAt ??= now;
+        record.fidelityLimits = [...new Set([...record.fidelityLimits,
+          after.readiness === 'idle'
+            ? 'Replay used a fresh browser render after Vite request idle; historical browser state is not attested.'
+            : 'Replay did not attest completed HMR rendering.',
+        ])];
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message.slice(0, 512) : String(error).slice(0, 512);
+      for (const attempt of attempts) {
+        attempt.record.status = 'source_only';
+        attempt.record.reason = reason;
+      }
+    } finally {
+      await session?.close();
+    }
+
+    const existingPrimary = validImage(root, checkpoint.id, 'primary.png');
+    const firstNewPrimary = !existingPrimary ? staged[0]?.target : undefined;
+    const published: string[] = [];
+    const temporaries: string[] = [];
+    let metadataTemporary: string | undefined;
+    try {
+      for (const item of staged) {
+        const isPrimary = item.target === firstNewPrimary;
+        const filename = isPrimary ? 'primary.png' : `${item.target.targetId}--${item.target.viewportId}.png`;
+        const finalPath = join(targetDirectory, filename);
+        if (existsSync(finalPath)) throw new Error(`Refusing to replace existing preview image ${filename}`);
+        const temporary = join(targetDirectory, `.${randomUUID()}.png`);
+        writeFileSync(temporary, item.bytes, { flag: 'wx' });
+        temporaries.push(temporary);
+        renameSync(temporary, finalPath);
+        published.push(finalPath);
+        item.target.imageFile = filename;
+      }
+      if (firstNewPrimary) {
+        record.primaryTargetId = firstNewPrimary.targetId;
+        record.primaryViewportId = firstNewPrimary.viewportId;
+        const primaryConfig = configs.find((target) => target.id === firstNewPrimary.targetId)!;
+        record.route = primaryConfig.route;
+        record.viewport = { ...firstNewPrimary.viewport };
+      }
+      const anyImage = validImage(root, checkpoint.id, 'primary.png') || targets.some((target) =>
+        target.status === 'captured' && validImage(root, checkpoint.id, target.imageFile));
+      record.status = anyImage ? 'captured' : 'source_only';
+      if (!anyImage) record.reason = targets.find((target) => target.reason)?.reason ?? 'No configured preview targets were captured.';
+      else delete record.reason;
+      metadataTemporary = atomicJson(recordPath, record);
+      renameSync(metadataTemporary, recordPath);
+      metadataTemporary = undefined;
+    } catch (error) {
+      for (const path of temporaries) if (existsSync(path)) rmSync(path, { force: true });
+      for (const path of published) if (existsSync(path)) rmSync(path, { force: true });
+      if (metadataTemporary && existsSync(metadataTemporary)) rmSync(metadataTemporary, { force: true });
+      if (previousBytes) writeFileSync(recordPath, previousBytes);
+      throw error;
+    }
+  } else if (!previous) {
+    record.status = validImage(root, checkpoint.id, 'primary.png') ? 'captured' : 'source_only';
+  }
   return record;
 }
