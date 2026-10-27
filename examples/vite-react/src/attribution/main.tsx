@@ -12,6 +12,7 @@ function App() {
     <main>
       <Header screen="home" />
       <h1>Board</h1>
+      <label>Search <input name="search" /></label>
       <Board onOpen={setOpen} />
       {open !== null && <ItemDialog index={open} onClose={() => setOpen(null)} />}
     </main>

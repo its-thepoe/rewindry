@@ -7,7 +7,7 @@ const target = join(process.cwd(), 'dist', 'viewer');
 if (!existsSync(source)) throw new Error('Viewer assets are missing');
 mkdirSync(target, { recursive: true });
 cpSync(source, target, { recursive: true, force: true });
-for (const name of ['overlay.js', 'overlay.css', 'component-map.js']) {
+for (const name of ['overlay.js', 'overlay.css', 'component-map.js', 'recorder.js']) {
   const asset = join(process.cwd(), 'src', name);
   if (!existsSync(asset)) throw new Error(`Missing ${name}`);
   copyFileSync(asset, join(process.cwd(), 'dist', name));

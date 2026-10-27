@@ -239,6 +239,8 @@ async function createCaptureSession(): Promise<CaptureSession> {
         serviceWorkers: 'block',
       });
       try {
+        // Rewindry's own renders must never teach the state recorder new paths.
+        await context.addInitScript('globalThis.__rewindryCapture = true;');
         await context.route('**/*', (route) => {
           try {
             localPreview(route.request().url());

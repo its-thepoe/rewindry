@@ -42,12 +42,15 @@ export type UiState = {
   route: string;
   path: unknown[];
   componentSet: string;
+  components: string[];
   modules: string[];
   status: "active" | "path_broken";
   firstSeenAt: string;
   lastSeenAt: string;
 };
-export type UiStateInput = { origin: UiStateOrigin; route: string; path: unknown[]; componentSet: string; modules?: string[] };
+export type UiStateInput = {
+  origin: UiStateOrigin; route: string; path: unknown[]; componentSet: string; components?: string[]; modules?: string[];
+};
 export type FrameStatus = "captured" | "unchanged" | "path_broken" | "skipped" | "failed";
 export type VisualBox = { x: number; y: number; width: number; height: number };
 export type ComponentVersionInput = {
@@ -173,7 +176,8 @@ export class WorkspaceStore {
       throw new Error("Store index cannot be a symlink");
     }
     const db = new DatabaseSync(indexPath);
-    db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;");
+    // The Vite plugin and the daemon can both write; wait briefly for the other's lock instead of failing.
+    db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     const version = db.prepare("PRAGMA user_version").get() as { user_version: number };
     if (version.user_version > 3) {
       db.close();
@@ -350,7 +354,7 @@ export class WorkspaceStore {
     return this.maxSourceBytes;
   }
 
-  upsertUiState(input: UiStateInput): UiState {
+  upsertUiState(input: UiStateInput, options?: { maxStates?: number }): UiState {
     const db = this.database();
     if (!["learned", "configured"].includes(input.origin)) throw new Error("Invalid UI state origin");
     if (typeof input.route !== "string" || !input.route.startsWith("/") || input.route.length > 2_048) {
@@ -364,6 +368,11 @@ export class WorkspaceStore {
         !modules.every((module) => typeof module === "string" && this.validRelativePath(module))) {
       throw new Error("Invalid UI state modules");
     }
+    const components = input.components ?? [];
+    if (!Array.isArray(components) || components.length > MAX_STATE_MODULES ||
+        !components.every((key) => typeof key === "string" && key.length > 0 && key.length <= 512)) {
+      throw new Error("Invalid UI state components");
+    }
     const now = new Date().toISOString();
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -373,12 +382,24 @@ export class WorkspaceStore {
         // Keep the shortest working path; any working path repairs a broken one.
         const replacePath = existing.status === "path_broken" ||
           input.path.length < (JSON.parse(existing.path_json) as unknown[]).length;
-        db.prepare(`UPDATE ui_states SET path_json = ?, modules_json = ?, status = 'active', last_seen_at = ? WHERE id = ?`)
-          .run(replacePath ? pathJson : existing.path_json, JSON.stringify(modules), now, existing.id);
+        db.prepare(`UPDATE ui_states SET path_json = ?, components_json = ?, modules_json = ?, status = 'active', last_seen_at = ? WHERE id = ?`)
+          .run(replacePath ? pathJson : existing.path_json, JSON.stringify(components), JSON.stringify(modules), now, existing.id);
       } else {
-        db.prepare(`INSERT INTO ui_states (id, origin, route, path_json, component_set, modules_json, status, first_seen_at, last_seen_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
-          .run(randomUUID(), input.origin, input.route, pathJson, input.componentSet, JSON.stringify(modules), now, now);
+        const maxStates = options?.maxStates;
+        if (maxStates !== undefined) {
+          const { count } = db.prepare("SELECT COUNT(*) AS count FROM ui_states").get() as { count: number };
+          if (count >= maxStates) {
+            // Evict the least recently seen learned state that has no history; never delete captured history.
+            const victim = db.prepare(`SELECT id FROM ui_states WHERE origin = 'learned'
+              AND NOT EXISTS (SELECT 1 FROM screen_frames WHERE screen_frames.state_id = ui_states.id)
+              ORDER BY last_seen_at, id LIMIT 1`).get() as { id: string } | undefined;
+            if (!victim) throw new Error("UI state limit reached");
+            db.prepare("DELETE FROM ui_states WHERE id = ?").run(victim.id);
+          }
+        }
+        db.prepare(`INSERT INTO ui_states (id, origin, route, path_json, component_set, components_json, modules_json, status, first_seen_at, last_seen_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
+          .run(randomUUID(), input.origin, input.route, pathJson, input.componentSet, JSON.stringify(components), JSON.stringify(modules), now, now);
       }
       db.exec("COMMIT");
     } catch (error) {
@@ -393,6 +414,7 @@ export class WorkspaceStore {
     return rows.map((row) => ({
       id: row.id!, origin: row.origin as UiStateOrigin, route: row.route!,
       path: JSON.parse(row.path_json!) as unknown[], componentSet: row.component_set!,
+      components: JSON.parse(row.components_json!) as string[],
       modules: JSON.parse(row.modules_json!) as string[], status: row.status as UiState["status"],
       firstSeenAt: row.first_seen_at!, lastSeenAt: row.last_seen_at!,
     }));

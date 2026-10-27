@@ -12,6 +12,7 @@ export function migrateUiHistory(db: DatabaseSync): void {
         route TEXT NOT NULL,
         path_json TEXT NOT NULL,
         component_set TEXT NOT NULL,
+        components_json TEXT NOT NULL DEFAULT '[]',
         modules_json TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL CHECK (status IN ('active', 'path_broken')),
         first_seen_at TEXT NOT NULL,

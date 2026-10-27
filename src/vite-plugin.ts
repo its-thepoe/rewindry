@@ -6,10 +6,14 @@ import { fileURLToPath } from 'node:url';
 import { WorkspaceStore } from './store.ts';
 import { safePreviewFile } from './preview-files.ts';
 import { captureCheckpoint, previewTargetRecords, primaryReplayed, type PreviewRecord } from './capture.ts';
+import { MAX_UI_STATES, parseLearnedState } from './ui-states.ts';
 
 const PREVIEW_PATH = '/__rewindry/preview';
 const ITERATIONS_PATH = '/__rewindry/iterations';
 const IMAGE_PREFIX = '/__rewindry/image/';
+const STATES_PATH = '/__rewindry/states';
+const RECORDER_PATH = '/__rewindry/recorder.js';
+const MAX_STATE_REPORT_BYTES = 128 * 1024;
 const ASSET_PATHS = new Map([
   ['/__rewindry/overlay.js', ['overlay.js', 'text/javascript; charset=utf-8']],
   ['/__rewindry/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
@@ -46,8 +50,33 @@ export interface PreviewIdentity {
   readiness: 'unverified' | 'idle';
 }
 
-export function rewindryPreviewPlugin(appId: string) {
+export type RewindryPreviewOptions = {
+  // false hides the timeline widget only; capture and state learning keep running.
+  widget?: boolean;
+};
+
+const assetDirectory = () => dirname(fileURLToPath(import.meta.url));
+const stripLeadingComments = (source: string) => source.replace(/^(\s*\/\/[^\n]*\n)+/, '').trim();
+let recorderSource: string | undefined;
+function recorderScript(): string {
+  recorderSource ??= `(${stripLeadingComments(readFileSync(join(assetDirectory(), 'recorder.js'), 'utf8'))})(` +
+    `${stripLeadingComments(readFileSync(join(assetDirectory(), 'component-map.js'), 'utf8'))});\n`;
+  return recorderSource;
+}
+
+export function rewindryPreviewPlugin(appId: string, options: RewindryPreviewOptions = {}) {
   if (!appId.trim()) throw new Error('Rewindry preview requires an appId');
+  let projectRoot: string | undefined;
+  const widgetVisible = () => {
+    if (options.widget === false) return false;
+    const configPath = join(projectRoot ?? process.cwd(), '.rewindry', 'config.json');
+    try {
+      const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) as { preview?: { widget?: unknown } } : {};
+      return config.preview?.widget !== false;
+    } catch {
+      return true;
+    }
+  };
 
   const identity: PreviewIdentity = {
     appId,
@@ -61,6 +90,7 @@ export function rewindryPreviewPlugin(appId: string) {
     apply: 'serve' as const,
     configureServer(server: PreviewServer) {
       const root = resolve(server.config?.root ?? process.cwd());
+      projectRoot = root;
       const publishPreview = () => {
         if (!existsSync(join(root, '.rewindry'))) return;
         const address = server.httpServer?.address();
@@ -216,12 +246,64 @@ export function rewindryPreviewPlugin(appId: string) {
           respond(response, 503, 'text/plain; charset=utf-8', 'Image unavailable');
         }
       });
+      server.middlewares.use(RECORDER_PATH, (request, response, next) => {
+        if (request.method !== 'GET' || request.url !== '/') return next();
+        if (!localRequest(request)) return respond(response, 403, 'text/plain; charset=utf-8', 'Forbidden');
+        try {
+          respond(response, 200, 'text/javascript; charset=utf-8', recorderScript());
+        } catch {
+          respond(response, 503, 'text/plain; charset=utf-8', 'Recorder unavailable');
+        }
+      });
+      // Learning only: stores how to reach a UI state. Never restores, applies or runs anything.
+      server.middlewares.use(STATES_PATH, (request, response, next) => {
+        if (request.method !== 'POST' || request.url !== '/') return next();
+        const host = request.headers.host;
+        if (!localRequest(request) || request.headers.origin !== `http://${host}`) {
+          request.resume();
+          return respond(response, 403, 'text/plain; charset=utf-8', 'Forbidden');
+        }
+        if (!/^application\/json(?:;|$)/.test(request.headers['content-type'] ?? '')) {
+          request.resume();
+          return respond(response, 415, 'text/plain; charset=utf-8', 'JSON required');
+        }
+        const chunks: Buffer[] = [];
+        let size = 0;
+        let refused = false;
+        request.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > MAX_STATE_REPORT_BYTES) {
+            if (!refused) respond(response, 413, 'text/plain; charset=utf-8', 'State report too large');
+            refused = true;
+            return;
+          }
+          chunks.push(chunk);
+        });
+        request.on('end', () => {
+          if (refused) return;
+          let learned;
+          try {
+            learned = parseLearnedState(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          } catch (error) {
+            return respond(response, 400, 'text/plain; charset=utf-8', error instanceof Error ? error.message : 'Invalid state report');
+          }
+          if (!existsSync(join(root, '.rewindry', 'index.sqlite'))) return respond(response, 409, 'text/plain; charset=utf-8', 'Rewindry is not set up');
+          try {
+            history();
+            const state = store!.upsertUiState(learned, { maxStates: MAX_UI_STATES });
+            respond(response, 200, 'application/json; charset=utf-8', JSON.stringify({ stateId: state.id }));
+          } catch (error) {
+            const limit = error instanceof Error && error.message === 'UI state limit reached';
+            respond(response, limit ? 409 : 503, 'text/plain; charset=utf-8', limit ? error.message : 'State unavailable');
+          }
+        });
+      });
       for (const [path, [name, type]] of ASSET_PATHS) {
         server.middlewares.use(path, (request, response, next) => {
           if (request.method !== 'GET' || request.url !== '/') return next();
           if (!localRequest(request)) return respond(response, 403, 'text/plain; charset=utf-8', 'Forbidden');
           try {
-            respond(response, 200, type, readFileSync(join(dirname(fileURLToPath(import.meta.url)), name)));
+            respond(response, 200, type, readFileSync(join(assetDirectory(), name)));
           } catch {
             respond(response, 503, 'text/plain; charset=utf-8', 'Overlay unavailable');
           }
@@ -229,7 +311,9 @@ export function rewindryPreviewPlugin(appId: string) {
       }
     },
     transformIndexHtml() {
-      return [{ tag: 'script', attrs: { src: '/__rewindry/overlay.js', defer: true, 'data-rewindry-preview': '' }, injectTo: 'body' as const }];
+      const recorder = { tag: 'script', attrs: { src: RECORDER_PATH, defer: true, 'data-rewindry-recorder': '' } as Record<string, string | boolean>, injectTo: 'body' as const };
+      if (!widgetVisible()) return [recorder];
+      return [{ tag: 'script', attrs: { src: '/__rewindry/overlay.js', defer: true, 'data-rewindry-preview': '' } as Record<string, string | boolean>, injectTo: 'body' as const }, recorder];
     },
   };
 }

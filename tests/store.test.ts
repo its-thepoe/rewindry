@@ -468,3 +468,23 @@ test("UI states merge by route and visible components, and frames record compone
     assert.throws(() => store.readVisual("../index"), /Invalid visual digest/);
   } finally { cleanup(); }
 });
+
+test("the UI state cap evicts the least recently seen state without history and never deletes history", () => {
+  const { root, store, cleanup } = fixture();
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "app.ts"), "one");
+    const checkpoint = store.snapshot("baseline");
+    assert.ok(checkpoint);
+    const learn = (name: string) => store.upsertUiState({ origin: "learned", route: "/", path: [], componentSet: hex(name), components: [`src/${name}.tsx#${name}`] }, { maxStates: 2 });
+    const kept = learn("A");
+    store.recordScreenFrame({ checkpointId: checkpoint.id, stateId: kept.id, profileId: "mobile", status: "skipped", captureMode: "live" });
+    learn("B");
+    learn("C");
+    assert.deepEqual(store.listUiStates().map((state) => state.components[0]).sort(), ["src/A.tsx#A", "src/C.tsx#C"]);
+    store.recordScreenFrame({ checkpointId: checkpoint.id, stateId: store.listUiStates().find((state) => state.components[0] === "src/C.tsx#C")!.id, profileId: "mobile", status: "skipped", captureMode: "live" });
+    assert.throws(() => learn("D"), /UI state limit reached/);
+    assert.equal(store.listUiStates().length, 2);
+    assert.equal(learn("A").id, kept.id, "an existing state still merges at the cap");
+  } finally { cleanup(); }
+});

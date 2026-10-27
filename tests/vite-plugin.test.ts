@@ -8,14 +8,93 @@ import test from 'node:test';
 import { rewindryPreviewPlugin } from '../src/vite-plugin.ts';
 import { WorkspaceStore } from '../src/store.ts';
 
-test('preview plugin is serve-only and injects one trigger', () => {
+test('preview plugin is serve-only and injects the widget trigger and the recorder', () => {
   const plugin = rewindryPreviewPlugin('fixture');
   assert.equal(plugin.apply, 'serve');
   const tags = plugin.transformIndexHtml();
-  assert.equal(tags.length, 1);
+  assert.equal(tags.length, 2);
   assert.equal(tags[0]?.attrs['data-rewindry-preview'], '');
   assert.equal(tags[0]?.attrs.src, '/__rewindry/overlay.js');
+  assert.equal(tags[1]?.attrs.src, '/__rewindry/recorder.js');
   assert.throws(() => rewindryPreviewPlugin('  '), /appId/);
+});
+
+test('hiding the widget keeps the recorder, from a plugin option or project config', () => {
+  assert.deepEqual(rewindryPreviewPlugin('fixture', { widget: false }).transformIndexHtml().map((tag) => tag.attrs.src), ['/__rewindry/recorder.js']);
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-widget-'));
+  try {
+    mkdirSync(join(root, '.rewindry'));
+    const plugin = rewindryPreviewPlugin('fixture');
+    plugin.configureServer({ config: { root }, watcher: new EventEmitter(), middlewares: { use() {} } });
+    assert.equal(plugin.transformIndexHtml().length, 2);
+    writeFileSync(join(root, '.rewindry', 'config.json'), JSON.stringify({ preview: { widget: false } }));
+    assert.deepEqual(plugin.transformIndexHtml().map((tag) => tag.attrs.src), ['/__rewindry/recorder.js']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the recorder is served wrapped with the component collector', () => {
+  const handlers = new Map<string, (request: IncomingMessage, response: ServerResponse, next: () => void) => void>();
+  rewindryPreviewPlugin('fixture').configureServer({ config: { root: '/fixture' }, watcher: new EventEmitter(), middlewares: { use(path, callback) { handlers.set(path, callback); } } });
+  let body = '';
+  let type = '';
+  handlers.get('/__rewindry/recorder.js')?.(
+    { method: 'GET', url: '/', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:5173' } } as unknown as IncomingMessage,
+    { statusCode: 200, setHeader(name: string, value: string) { if (name === 'Content-Type') type = value; }, end(value: string) { body = value; } } as unknown as ServerResponse,
+    () => assert.fail('recorder should be served'),
+  );
+  assert.match(type, /javascript/);
+  assert.match(body, /^\(\(collectComponentMap\) => \{/);
+  assert.match(body, /__reactContainer\$/);
+  assert.doesNotThrow(() => new Function(body));
+});
+
+test('state learning endpoint stores valid same-origin reports and refuses everything else', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-states-'));
+  try {
+    const handlers = new Map<string, (request: IncomingMessage, response: ServerResponse, next: () => void) => void>();
+    const plugin = rewindryPreviewPlugin('fixture');
+    plugin.configureServer({ config: { root }, watcher: new EventEmitter(), middlewares: { use(path, callback) { handlers.set(path, callback); } } });
+    const post = (body: string, headers: Record<string, string> = {}, address = '127.0.0.1') => new Promise<{ status: number; body: string }>((done) => {
+      const request = Object.assign(new EventEmitter(), {
+        method: 'POST', url: '/', socket: { remoteAddress: address }, resume() {},
+        headers: { host: '127.0.0.1:5173', origin: 'http://127.0.0.1:5173', 'content-type': 'application/json', ...headers },
+      });
+      let status = 200;
+      const response = { setHeader() {}, get statusCode() { return status; }, set statusCode(value: number) { status = value; }, end(value: string) { done({ status, body: value }); } };
+      handlers.get('/__rewindry/states')?.(request as unknown as IncomingMessage, response as unknown as ServerResponse, () => done({ status: 404, body: 'next' }));
+      for (let offset = 0; offset < body.length; offset += 64 * 1024) request.emit('data', Buffer.from(body.slice(offset, offset + 64 * 1024)));
+      request.emit('end');
+    });
+    const report = JSON.stringify({
+      route: '/', path: [{ action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }] }],
+      components: ['src/App.tsx#App', 'src/ItemDialog.tsx#ItemDialog'], modules: ['src/App.tsx', 'src/ItemDialog.tsx'],
+    });
+
+    assert.equal((await post(report)).status, 409, 'nothing is stored before Rewindry is set up');
+    const store = new WorkspaceStore(root);
+    store.initialize();
+    const stored = await post(report);
+    assert.equal(stored.status, 200, stored.body);
+    const [state] = store.listUiStates();
+    assert.equal(JSON.parse(stored.body).stateId, state?.id);
+    assert.deepEqual(state?.components, ['src/App.tsx#App', 'src/ItemDialog.tsx#ItemDialog']);
+    assert.deepEqual(state?.modules, ['src/App.tsx', 'src/ItemDialog.tsx']);
+    assert.equal((await post(report)).status, 200);
+    assert.equal(store.listUiStates().length, 1, 'the same state merges');
+
+    assert.equal((await post(report, { origin: 'http://evil.local:3000' })).status, 403);
+    assert.equal((await post(report, { origin: '' })).status, 403, 'POSTs must carry their origin');
+    assert.equal((await post(report, {}, '192.168.1.24')).status, 403);
+    assert.equal((await post(report, { 'content-type': 'text/plain' })).status, 415);
+    assert.equal((await post(JSON.stringify({ ...JSON.parse(report), path: [{ action: 'type', text: 'secret' }] }))).status, 400);
+    assert.equal((await post('{not json')).status, 400);
+    assert.equal((await post(JSON.stringify({ ...JSON.parse(report), modules: ['x'.repeat(200 * 1024)] }))).status, 413);
+    assert.equal(store.listUiStates().length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('preview registration uses a loopback address matching Vite IPv4 and IPv6 bindings', () => {
