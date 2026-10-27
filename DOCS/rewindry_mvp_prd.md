@@ -273,7 +273,14 @@ A screenshot belongs to a **finalised agent/manual/Git checkpoint**, never a tra
 5. Save source digest, checkpoint ID, route, viewport, capture time, readiness and preview status. A source-only checkpoint remains a valid timeline item.
 6. Limit the screenshot worker to the **final state of each visible iteration**; optional internal file-write journals must not trigger extra captures. Do not block the developer's agent while screenshots are attempted.
 
-Identical source does not guarantee identical browser output: network responses, state, sessions, animations and external assets can differ. Prefer deterministic fixtures where possible. Rewindry supports up to 12 configured route/component and viewport combinations per checkpoint, with a root-page 1280×800 default; no framework component discovery is promised. An explicit `rewindry backfill --run-historical-source` command can replay each checkpoint's saved source in an isolated temporary directory to add missing configured variants; these images are labelled **Replayed from saved source**, never replace an existing image, and cannot recover exact original runtime pixels.
+Identical source does not guarantee identical browser output: network responses, state, sessions, animations and external assets can differ. Prefer deterministic fixtures where possible. Rewindry supports up to 12 configured route/component and viewport combinations per checkpoint, with a root-page 1280×800 default.
+
+**Follow-on (plan 003, implemented on a branch 27 October 2026, not yet published or validated on a real project):** passive per-screen and per-component history.
+- A development-only recorder learns how to reach UI states (URL plus clicks, Escape and select choices) from ordinary use in any browser running the dev plugin. It never records typed text, values, cookies or storage.
+- After each finalised checkpoint, Rewindry replays the landing page and every learned state that renders a changed file, headlessly at mobile, tablet and desktop. It saves full-page frames and crops of each React component it can attribute to a source file.
+- Identical frames and crops are recorded as unchanged, so a history shows only real visual changes.
+- A **Screens** page in the standalone viewer browses that history by component, screen, or screen at one breakpoint.
+- The live-capture rules above still apply: one finalised checkpoint, digest and preview identity checked before and after, never intermediate writes. An explicit `rewindry backfill --run-historical-source` command can replay each checkpoint's saved source in an isolated temporary directory to add missing configured variants, and (plan 003) learned screens and components; these images are labelled **Replayed from saved source**, never replace an existing image, and cannot recover exact original runtime pixels.
 
 ## 13. Git import, what it can and cannot do
 
@@ -389,7 +396,8 @@ If a repo moves, re-register it rather than assuming the old absolute location i
 - Require consent to install the login-start service; no hidden privileged OS-level service.
 - Never expose historical source via a remotely accessible dev-server interface, production build or unsecured browser route.
 - Protect against cross-origin requests/CSRF, malicious paths/symlinks, credential-file capture, content injection in code viewer and accidental screenshotting of real personal data.
-- Avoid auto-running arbitrary historical source or package scripts: **there is no historical execution in MVP**.
+- Avoid auto-running arbitrary historical source or package scripts: **historical source runs only through the explicit, acknowledged `rewindry backfill --run-historical-source` command**, isolated in a temporary directory with no installs or package scripts.
+- The development-only state recorder (plan 003) stores URLs and the role, label, test ID or short CSS path of controls the developer clicked, locally. It never stores typed text, input values, clipboard, cookies or storage. Its endpoint accepts only loopback, same-origin, strictly shaped reports.
 - The reviewer cannot write to the source tree. This simplifies the threat model substantially.
 - Display clear disabled/paused/capture-failed status and storage-health warnings.
 
@@ -499,7 +507,7 @@ These are milestones in one **read-only visual-history MVP**, not separate user-
 - Importing proprietary agent-private snapshot databases, prompts or uncommitted histories from before installation.
 - Automatic historical screenshot reconstruction and execution of older dependencies.
 - Cloud-agent instrumentation, unsupported/unwatched worktrees, fully general multi-framework capture.
-- Automatic framework component discovery, arbitrary app-state construction and source/AST component history. Named routes and app-marked DOM captures are supported through explicit configuration.
+- Component discovery for frameworks other than React development builds, arbitrary app-state construction (beyond replaying clicks the developer actually made) and source/AST component history. Named routes and app-marked DOM captures remain available through explicit configuration. React component attribution and learned click paths are implemented on a branch as plan 003.
 - Capturing every intermediate file change as a visible checkpoint. **Explicitly prohibited for known active AI turns.**
 
 ## 24. Open decisions for validation (not blockers to the checkpoint policy)

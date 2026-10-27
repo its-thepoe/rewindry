@@ -33,12 +33,54 @@ The preview stays clear while the timeline is closed. Press `Alt+Shift+R` to ope
 - Review Git history separately from Rewindry checkpoints.
 - Continue capturing source while the dev server is stopped.
 - Use the standalone viewer when the app preview is unavailable.
+- See how one component, a whole screen, or a screen at one breakpoint changed across iterations (from a source build; see below).
 
 The timeline is read-only: it does not restore, revert, apply, or execute historical code. It is a sequence of local browser captures, not a video recording.
 
+## Screen and component history
+
+> Not yet in the published npm package. Available from a source build (`npm run build`, then `node dist/cli.js …`).
+
+Rewindry can keep a separate history for every screen and React component you work on, at mobile, tablet and desktop sizes. There is nothing to configure or press.
+
+**How it learns screens.** While your Vite dev server runs with the Rewindry plugin, a small development-only recorder watches how you use the app in any browser: yours, a second browser, or a coding agent's test browser.
+- It records page URLs, clicks, the Escape key and dropdown choices, each as a few ways to find that control again (test ID, role and label, short CSS path).
+- When a click makes something new appear, such as a dialog, popover or sheet, the recorder saves how to get there from page load. Opening a screen once is enough.
+
+**What it never records.** Typed text, input values, clipboard, cookies and browser storage. The dev server rejects any report that carries them.
+
+**How it captures, with no browser open.** After each update (an agent turn or a group of edits), Rewindry renders screens in a background browser:
+- It renders your landing page, plus every learned screen that uses a file you changed.
+- It replays the saved clicks and screenshots each screen at every breakpoint.
+- It cuts out every React component it can attribute to a source file.
+- Identical screenshots and crops are stored once and recorded as unchanged. A history therefore shows only real visual changes.
+- At most 36 screenshots are taken per update. Screens over that limit are recorded as skipped.
+- If a saved click no longer matches anything, that screen is marked unreachable for the update and keeps its earlier images. The next time you open it in a browser, the path is relearned.
+
+**Looking back.** Run `rewindry viewer` and choose **Screens**:
+- *Component* shows one component's real versions.
+- *Screen* shows a whole screen's versions.
+- *Breakpoint* narrows either view to one size.
+- Compare puts two versions side by side.
+- *Code at this iteration* opens that iteration's files and diff.
+
+Options in the `preview` object of `.rewindry/config.json`:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `widget` | `true` | `false` hides the development timeline widget. Capture and learning keep running. You can also pass `rewindryPreviewPlugin(appId, { widget: false })`. Don't remove the plugin to hide the widget, because removing it stops capture. |
+| `route` | `/` | The landing page that always gets history, for example `/?welcome=1`. |
+| `profiles` | mobile 390×844 @2x, tablet 768×1024 @2x, desktop 1280×800 | Up to 6 breakpoints, each `{ "id", "label", "width", "height", "isMobile", "hasTouch", "deviceScaleFactor" }`. |
+
+**Limits:**
+- Component zoom needs a React development build. Other apps get screen-level history only.
+- Screens that only appear on hover, or after typing, are not learned.
+- Replays use your local dev server and data, so live backend data, sign-in state, time and randomness can make pixels differ from what you saw.
+- Only Chromium rendering has been tested.
+
 ## Named visual captures
 
-By default, Rewindry captures the root page at 1280×800. To capture specific screens or app-provided components at mobile and desktop sizes, add `targets` to the `preview` object in `.rewindry/config.json`:
+Named targets are an optional manual override for screens that the passive history cannot reach. Without them, the legacy per-iteration image is the root page at 1280×800. To capture specific screens or app-provided components at mobile and desktop sizes, add `targets` to the `preview` object in `.rewindry/config.json`:
 
 ```json
 {
@@ -67,7 +109,7 @@ By default, Rewindry captures the root page at 1280×800. To capture specific sc
 }
 ```
 
-For a component capture, your app must render that component on a deterministic local route/state and mark one DOM root with a stable CSS selector. Rewindry takes a screenshot of that matching element; it does not discover framework components or click controls to create app state. The standalone viewer and dev overlay let you choose **Screen/component** and **Viewport** while staying on the same iteration. New targets apply to future captures automatically; older checkpoints keep their saved images until you run an explicit backfill.
+For a named component capture, your app must render that component on a deterministic local route/state and mark one DOM root with a stable CSS selector. Rewindry takes a screenshot of that matching element. Named targets do not use learned clicks or component discovery; those belong to the screen and component history above. The standalone viewer and dev overlay let you choose **Screen/component** and **Viewport** while staying on the same iteration. New targets apply to future captures automatically; older checkpoints keep their saved images until you run an explicit backfill.
 
 ### Backfilling older checkpoints
 
@@ -77,11 +119,12 @@ For a component capture, your app must render that component on a deterministic 
 
 - rebuilds that checkpoint's saved files in a temporary folder under `.rewindry/tmp/` (never in your working copy), then deletes the folder;
 - starts that checkpoint's saved Vite config on a private loopback port, reusing your project's currently installed `node_modules`. It never runs `npm install` or package scripts;
-- captures every configured `preview.targets` screen and viewport that the checkpoint does not already have.
+- captures every configured `preview.targets` screen and viewport that the checkpoint does not already have;
+- replays your learned screens at every breakpoint against that checkpoint's own files, adding per-screen and per-component history for iterations that were never screenshotted.
 
 The flag is required because the command runs old project code. Without it, nothing is executed or written. Backfill never changes a checkpoint's source, digest, timestamp or Git history, never adds timeline points, and never replaces an existing image: a live `primary.png` stays byte-for-byte, and a replay only becomes `primary.png` when the checkpoint had none. Rerunning skips variants that already succeeded and retries ones that failed.
 
-Replayed images are labelled **Replayed from saved source** in both viewers. They are a best-effort re-render, not the original screen: files outside the saved source, dependencies that changed since, environment variables, network data and browser state can all change the pixels. A checkpoint whose saved source no longer builds stays source-only, with the failure reason shown.
+Replayed images are labelled **Replayed from saved source** in both viewers and on the Screens page. Click paths are learned from today's app, so an old iteration that has no such control is recorded as unreachable for that screen. They are a best-effort re-render, not the original screen: files outside the saved source, dependencies that changed since, environment variables, network data and browser state can all change the pixels. A checkpoint whose saved source no longer builds stays source-only, with the failure reason shown.
 
 ## Commands
 
@@ -114,7 +157,7 @@ See [the compatibility notes](DOCS/compatibility.md) for the evidence and caveat
 
 ## Local data and fidelity
 
-Project history is stored locally in `.rewindry/`. Rewindry does not require an account or upload project history to a Rewindry cloud service. The history can contain source code, and screenshots can show app data, so treat the project history like other private project files.
+Project history is stored locally in `.rewindry/`. Rewindry does not require an account or upload project history to a Rewindry cloud service. The history can contain source code, screenshots and component crops can show app data, and learned screens store the labels and text of controls you clicked. Treat the project history like other private project files.
 
 Screenshots are fresh renders from your local development preview. Environment variables, remote data, browser storage, and an existing tab's runtime state are not reconstructed. If a screenshot cannot be tied to a stable source state, Rewindry keeps the source checkpoint and reports the visual as unavailable rather than inventing a preview.
 

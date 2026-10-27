@@ -22,7 +22,7 @@
 | Frontend | React application using conventional Vite HTML entry | Frameworks with custom entry handling: standalone history viewer; no promise of overlay |
 | IDE/agent | Editor-neutral local file capture; boundary adapters tested separately for Cursor, Claude Code, Codex CLI | Unsupported editor, remote agent, unattached worktree: `Grouped edits`/not observed, not guaranteed one-per-prompt |
 | Storage | All **project-owned** data inside `<repo>/.rewindry/` | Only daemon binary, repo registrations, service logs and locks may live in user application-data directories |
-| Rendering | Up to 12 configured named route/component and viewport combinations per checkpoint; root page at 1280×800 when omitted | App supplies deterministic route/state and optional stable CSS selector; no framework discovery. Historical variants only via explicit acknowledged backfill (§9 Historical visual backfill) |
+| Rendering | Up to 12 configured named route/component and viewport combinations per checkpoint; root page at 1280×800 when omitted. Plan 003 (branch): passive per-screen and per-component history at mobile/tablet/desktop, up to 36 frames per checkpoint | Named targets need an app-supplied deterministic route/state and optional stable CSS selector. Passive history learns states from developer clicks and attributes components only in React development builds; other frameworks get screen-level history. Historical variants only via explicit acknowledged backfill (§9) |
 | Git | Index locally reachable commits read-only | Missing commit objects/shallow history must be disclosed; Git history cannot recover uncommitted pre-install prompts |
 
 **Important interpretation:** `one turn = one iteration` is only promised for agent editions where *outer-turn start, completion and workspace identity can actually be correlated*. A completion-only event is useful but cannot, by itself, prevent premature manual-idle checkpoint creation. Agent capability must be measured and shown per installed edition.
@@ -343,7 +343,14 @@ CREATE TABLE events (
 );
 ```
 
-**Migration constraint:** support creating fresh stores, upgrading compatible stores and refusing unknown newer schemas with a readable error (rather than corrupting them). Imported Git commit records can use a separate `git_commits` table with all parent edges rather than forcing multiple parents into `checkpoints.parent_id`.
+**Migration constraint:** support creating fresh stores, upgrading compatible stores and refusing unknown newer schemas with a readable error (rather than corrupting them).
+
+**Implemented schema v3 (plan 003, `migration-003-ui-history.ts`):**
+- `ui_states` holds one row per route plus visible-component set. Landing states use a fixed set, so they are keyed by URL alone. Each row stores its origin (learned or configured), path, current components and modules, active/path_broken status, and first/last seen times.
+- `screen_frames` holds one row per checkpoint, state and profile. Each has a status (captured, unchanged, path_broken, skipped or failed), an image digest, the checkpoint it is unchanged from, a capture mode (live or replayed) and a reason. Checks keep status, digest and unchanged-from consistent.
+- `component_versions` holds one row per component instance in a frame: crop digest, unchanged-from and box.
+- Images live content-addressed in `.rewindry/visuals/<sha256>.png`.
+- Older running runtimes refuse v3 stores, so a runtime upgrade must accompany the first v3 write. Imported Git commit records can use a separate `git_commits` table with all parent edges rather than forcing multiple parents into `checkpoints.parent_id`.
 
 ## 9. Visual capture — exact checkpoint association
 
@@ -355,7 +362,7 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 2. If a configured Vite dev preview is **already active** and permitted, enqueue one visual job for checkpoint `C`, then capture each configured target/profile combination sequentially; a bounded retry does not create new jobs or dots.
 3. Wait for the dev-server readiness signal and HMR settle (including page-load and selected fonts-ready checks). The UI overlay must be hidden or excluded from the screenshot.
 4. Re-hash the eligible source tree immediately **before** capture. If different from `D`, record `source_changed` and mark the checkpoint visual unavailable; do not display the latest UI as the old checkpoint.
-5. For each combination, a fresh isolated browser context navigates to its same-origin local route, applies the named viewport/device-emulation settings, and captures the page viewport or exactly one match for its CSS selector. Do not click app controls or hit production services. The first successful variant is also stored as `primary.png` for old clients.
+5. For each combination, a fresh isolated browser context navigates to its same-origin local route, applies the named viewport/device-emulation settings, and captures the page viewport or exactly one match for its CSS selector. Named-target capture does not click app controls; only passive screen history (below) replays clicks the developer made. Never hit production services. The first successful variant is also stored as `primary.png` for old clients.
 6. Re-hash immediately **after** the image is taken; attach only if both hashes equal `D`, the dev preview belongs to the intended registered workspace and route, and no readiness error was observed. Persist as `.webp` or `.png` plus metadata. Otherwise discard image and record an explicit status.
 7. Handle rapid sequential turns with back-pressure. If current source has moved on, old source-only dots stay navigable; **automatic capture must not execute earlier source or backfill missing images** (only the explicit backfill command may).
 
@@ -368,10 +375,42 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 ### Screenshot settings (MVP)
 
 - `preview.targets` configures named routes and optional CSS selectors, each with named viewports; an absent target list preserves the root-page 1280×800 behavior. At most 12 target/profile combinations are accepted per checkpoint.
-- A component selector must match exactly one DOM element on a deterministic local route/state that the app provides. Rewindry does not discover React/Vue/etc. components, click UI controls, or inject app code to create state.
+- A named component selector must match exactly one DOM element on a deterministic local route/state that the app provides. Named targets do not discover components, click UI controls, or inject app code to create state.
 - Width/height are integer pixels from 1 through 4096; IDs use lowercase letters, numbers and hyphens; IDs are unique within target and viewport lists. Each image records its route, selector, viewport/device settings, status, reason and filename.
 - The viewer and overlay provide accessible screen/component and viewport selectors for the current iteration. Selection is preserved through navigation; an unavailable variant is named as missing and is never replaced silently by a different image. The timeline remains one dot per source checkpoint.
 - Historical preview records with only `route`, `viewport` and `primary.png` remain readable as one default page/Desktop variant. Existing checkpoints are immutable and are not retroactively captured by normal operation.
+
+### Passive screen and component history (plan 003, branch)
+
+**Learning:**
+- The Vite plugin always injects a serve-only recorder (`/__rewindry/recorder.js`, wrapped with the component collector). It injects the widget only when `preview.widget` is not `false`.
+- The recorder observes trusted clicks, Escape and `select` changes, plus URL changes. Each click is stored as up to three locators: `data-testid`; role plus accessible name (never from editable fields); and a short CSS path, each with a match index.
+- It saves a state when a step makes a component appear that was not visible before, and saves the landing state of each URL. A URL change starts a fresh state that replays by loading that URL.
+- Reports go to `POST /__rewindry/states`, which accepts only loopback, same-origin JSON (≤128 KiB) passing a strict allowlist parser. Equivalent states merge, keeping the shortest path. A working path repairs a broken one.
+- Learned states are capped at 200. The cap evicts the least recently seen learned state that has no frames; history is never deleted to make room.
+- Rewindry's own capture contexts set `__rewindryCapture`, so they never teach the recorder.
+
+**Attribution:** `component-collector.js` runs in the captured page. It walks React development fibers from each root and credits each component to the first stack frame after React's own `jsxDEV`/`createElement` (or JSX wrapper) frames in an owned fiber's `_debugStack`. It returns per-instance document boxes (including portal content) and occurrence indexes. Production builds contain none of this.
+
+**Capture:**
+- After a checkpoint's legacy capture succeeds, the runtime queues per-screen capture, one browser at a time.
+- The landing route (seeded as a state, so it has history without any browser visit) comes first. Next come states whose components or loaded modules include a changed file, falling back to the most recently used states.
+- Default profiles are mobile 390×844 @2x touch, tablet 768×1024 @2x touch and desktop 1280×800 @1x (`preview.profiles`, at most 6). The budget is 36 frames per checkpoint, and touched states over budget are recorded as `skipped`.
+- Each frame uses a fresh capture-marked, loopback-only context. It replays the path step by step, falling back through locators; an unmatched step yields `path_broken`. The page then settles and scrolls to the top, the component map is collected, and a full-page PNG is taken.
+- Component crops are cut in device pixels.
+- Frames and crops identical to the previous version for that state/profile (or component instance) are recorded as `unchanged`, pointing at the first identical version.
+- The run is published only if the source digest and preview server identity/generation are unchanged across it.
+- Visuals share the 256 MiB budget with legacy previews, with a 4 MiB limit per frame.
+
+**Review:** the standalone viewer's **Screens** page (`/history`) uses these GET-only routes: `/api/history`, `/api/history/frames?state=&profile=`, `/api/history/components?key=&state=&profile=` and `/api/visuals/<sha256>.png`. The image route serves only digests referenced by a recorded frame or crop.
+
+**Backfill:** the explicit backfill command also replays learned states against each checkpoint's isolated historical server. It checks the historical identity endpoint and the temporary tree's digest, and records frames as `replayed`. Replays never change a state's current components or path status.
+
+**Known limits:**
+- Clicked states are keyed by their visible component set, so a dialog that gains a child component is relearned as a new state.
+- Repeated components are matched by occurrence order.
+- Hover-only and typed-input states are not learned.
+- Only Chromium is verified.
 
 ### Historical visual backfill
 
@@ -402,7 +441,7 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 
 The agent service offers read-only HTTP endpoints on **loopback only** for the viewer. Use a per-session access token/capability, restrictive Origin policy, Host validation and path sanitisation; avoid a public network interface. Mutation endpoints are not present in MVP.
 
-Illustrative routes (not an already published API):
+Implemented viewer routes for screen history (plan 003) are listed in §9. The original illustrative routes follow (not an already published API):
 
 ```text
 GET /v1/status
@@ -450,7 +489,9 @@ A Vite dev server may run on a public/LAN interface. **Do not blindly proxy hist
     "baseUrl": "http://127.0.0.1:5173",
     "route": "/",
     "viewport": { "width": 1440, "height": 900 },
-    "timeoutMs": 10000
+    "timeoutMs": 10000,
+    "widget": true,
+    "profiles": [{ "id": "mobile", "label": "Mobile", "width": 390, "height": 844, "isMobile": true, "hasTouch": true, "deviceScaleFactor": 2 }]
   },
   "storage": { "maxLocalBytes": 2147483648 },
   "privacy": { "telemetry": false, "remoteUpload": false }
