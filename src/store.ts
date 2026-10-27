@@ -61,7 +61,7 @@ export type ScreenFrameInput = {
   imageDigest?: string; unchangedFrom?: string; reason?: string; components?: ComponentVersionInput[];
 };
 export type ScreenFrame = Omit<ScreenFrameInput, "components"> & { capturedAt: string };
-export type ComponentVersion = ComponentVersionInput & { checkpointId: string; stateId: string; profileId: string };
+export type ComponentVersion = ComponentVersionInput & { checkpointId: string; stateId: string; profileId: string; captureMode: "live" | "replayed" };
 
 type Manifest = Checkpoint & { schemaVersion: 1; includePolicyVersion: 1 };
 type CapturedFile = CheckpointFile & { bytes: Buffer };
@@ -569,14 +569,16 @@ export class WorkspaceStore {
 
   listComponentVersions(componentKey: string, profileId?: string): ComponentVersion[] {
     const rows = this.database().prepare(`
-      SELECT component_versions.* FROM component_versions JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
-      WHERE component_key = ? AND (? IS NULL OR profile_id = ?)
-      ORDER BY checkpoints.created_at, checkpoints.rowid, state_id, profile_id, occurrence
+      SELECT component_versions.*, screen_frames.capture_mode FROM component_versions
+      JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
+      JOIN screen_frames USING (checkpoint_id, state_id, profile_id)
+      WHERE component_key = ? AND (? IS NULL OR component_versions.profile_id = ?)
+      ORDER BY checkpoints.created_at, checkpoints.rowid, component_versions.state_id, component_versions.profile_id, occurrence
     `).all(componentKey, profileId ?? null, profileId ?? null) as Record<string, string | number | null>[];
     return rows.map((row) => ({
       checkpointId: row.checkpoint_id as string, stateId: row.state_id as string, profileId: row.profile_id as string,
       componentKey: row.component_key as string, occurrence: row.occurrence as number, cropDigest: row.crop_digest as string,
-      box: JSON.parse(row.box_json as string) as VisualBox,
+      box: JSON.parse(row.box_json as string) as VisualBox, captureMode: row.capture_mode as ComponentVersion["captureMode"],
       ...(row.unchanged_from ? { unchangedFrom: row.unchanged_from as string } : {}),
     }));
   }

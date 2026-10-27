@@ -124,7 +124,7 @@ test('backfill processes checkpoints oldest-first from saved bytes and cleans ea
     });
     assert.deepEqual(order, [first.id, second.id]);
     assert.deepEqual(snapshots, ['initial', 'second saved state']);
-    assert.deepEqual(summary, { captured: 2, partial: 0, unavailable: 0 });
+    assert.deepEqual(summary, { captured: 2, partial: 0, unavailable: 0, screens: { captured: 0, unchanged: 0, pathBroken: 0, failed: 0, skipped: 0, unavailable: 0 } });
     assert.equal(output.some((line) => line.includes('Backfill 1/2')), true);
     assert.equal(temporaryRoots.every((path) => !existsSync(path)), true);
     assert.equal(existsSync(join(root, 'package-script-ran')), false);
@@ -157,7 +157,7 @@ test('backfill cleans the exact temporary directory after replay startup failure
         };
       },
     });
-    assert.deepEqual(summary, { captured: 0, partial: 0, unavailable: 1 });
+    assert.deepEqual(summary, { captured: 0, partial: 0, unavailable: 1, screens: { captured: 0, unchanged: 0, pathBroken: 0, failed: 0, skipped: 0, unavailable: 0 } });
     assert.equal(existsSync(temporaryRoot), false);
     assert.deepEqual(readdirSync(join(root, '.rewindry', 'tmp')), []);
   } finally {
@@ -248,6 +248,43 @@ test('failed variants retry in place while successful siblings remain available'
     assert.deepEqual(retried.targets?.map((target) => target.status), ['captured', 'captured']);
   } finally {
     await server.close();
+    cleanup();
+  }
+});
+
+test('backfill replays learned screens against each checkpoint\'s saved files, labelled as replayed, and isolates failures', async () => {
+  const { root, cleanup } = fixture();
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const first = store.snapshot('baseline');
+  writeFileSync(join(root, 'src', 'app.ts'), 'second saved state');
+  const second = store.snapshot('agent_turn', 'turn-2');
+  assert.ok(first && second);
+  writeFileSync(join(root, '.rewindry', 'config.json'), JSON.stringify({ preview: { appId: 'fixture', route: '/?welcome=1', profiles: [{ id: 'watch', width: 200, height: 240 }] } }));
+  const calls: { checkpointId: string; digest: string; options: Record<string, unknown> }[] = [];
+  const output: string[] = [];
+  try {
+    const summary = await runBackfill(root, { out: (line) => output.push(line), error: (line) => output.push(line) }, {
+      startPreview: async () => ({ previewUrl: 'http://127.0.0.1:1/', close: async () => {} }),
+      capture: async (_activeRoot, _sourceStore, checkpoint) => successfulRecord(checkpoint),
+      captureUi: async (_root, _store, checkpoint, options) => {
+        calls.push({ checkpointId: checkpoint.id, digest: options.sourceDigest!(), options: { ...options, sourceDigest: undefined } });
+        if (checkpoint.id === second.id) throw new Error('Preview app identity mismatch');
+        return { states: 2, captured: 4, unchanged: 1, pathBroken: 1, failed: 0, skipped: 0 };
+      },
+    });
+    assert.deepEqual(calls.map((call) => call.checkpointId), [first.id, second.id]);
+    // Each replay checks the temporary copy of that checkpoint, never the working tree.
+    assert.deepEqual(calls.map((call) => call.digest), [first.digest, second.digest]);
+    assert.deepEqual(calls[0]!.options, {
+      previewUrl: 'http://127.0.0.1:1/', appId: 'fixture', route: '/?welcome=1', profiles: [{ id: 'watch', width: 200, height: 240 }],
+      identityPath: '/__rewindry/backfill-preview', sourceDigest: undefined, captureMode: 'replayed',
+    });
+    assert.deepEqual(summary, { captured: 2, partial: 0, unavailable: 0, screens: { captured: 4, unchanged: 1, pathBroken: 1, failed: 0, skipped: 0, unavailable: 1 } });
+    assert.ok(output.includes(`Backfill ${second.id}: screens unavailable (Preview app identity mismatch)`));
+    assert.ok(output.includes('Screen history: 4 captured, 1 unchanged, 1 unreachable, 0 failed, 0 skipped, 1 checkpoints unavailable.'));
+    assert.deepEqual(readdirSync(join(root, '.rewindry', 'tmp')), []);
+  } finally {
     cleanup();
   }
 });

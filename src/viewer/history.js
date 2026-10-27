@@ -166,7 +166,8 @@ function renderEmpty(message) {
 }
 
 function caption(item) {
-  return `${profileLabel(item.profileId)} · ${dateFormat.format(new Date(item.createdAt))} · ${KIND_LABELS[item.kind] ?? 'Update'}`;
+  const replayed = item.captureMode === 'replayed' ? ' · Replayed from saved source' : '';
+  return `${profileLabel(item.profileId)} · ${dateFormat.format(new Date(item.createdAt))} · ${KIND_LABELS[item.kind] ?? 'Update'}${replayed}`;
 }
 
 function renderFilmstrip() {
@@ -253,6 +254,12 @@ function renderStage() {
     code.href = `/#checkpoint=${encodeURIComponent(item.checkpointId)}`;
     code.textContent = 'Code at this iteration';
     figcaption.append(title, meta, code);
+    if (item.captureMode === 'replayed') {
+      const note = document.createElement('p');
+      note.className = 'replay-note';
+      note.textContent = 'Rendered later from this iteration\u2019s saved files. Omitted dependencies, environment, data and browser state can change pixels.';
+      figcaption.append(note);
+    }
     figure.append(frame, figcaption);
     return figure;
   }));

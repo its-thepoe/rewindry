@@ -32,6 +32,9 @@ export type FrameRenderer = {
 };
 export type UiCaptureOptions = {
   previewUrl: string; appId: string; route?: string; profiles?: unknown; renderer?: FrameRenderer; maxFrames?: number;
+  // Backfill renders a checkpoint's saved files on an isolated server: its identity endpoint,
+  // its temporary tree's digest, and frames labelled as replayed rather than live.
+  identityPath?: string; sourceDigest?: () => string; captureMode?: 'live' | 'replayed';
 };
 export type UiCaptureSummary = {
   states: number; captured: number; unchanged: number; pathBroken: number; failed: number; skipped: number;
@@ -117,9 +120,11 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   const { selected, skipped } = selectStates(states, changedFiles(store, checkpoint), landing.id, maxStates);
   summary.states = selected.length;
 
-  const before = await identity(base);
+  const sourceDigest = options.sourceDigest ?? (() => store.currentDigest());
+  const captureMode = options.captureMode ?? 'live';
+  const before = await identity(base, options.identityPath);
   if (before.appId !== options.appId) throw new Error('Preview app identity mismatch');
-  if (store.currentDigest() !== checkpoint.digest) throw new Error('Source moved before capture');
+  if (sourceDigest() !== checkpoint.digest) throw new Error('Source moved before capture');
 
   const renders: { state: UiState; profile: CaptureProfile; result: RenderResult }[] = [];
   const renderer = options.renderer ?? await createFrameRenderer();
@@ -137,8 +142,8 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   }
 
   // Nothing is published if the source or the dev server moved underneath the renders.
-  const after = await identity(base);
-  if (after.serverId !== before.serverId || after.generation !== before.generation || store.currentDigest() !== checkpoint.digest) {
+  const after = await identity(base, options.identityPath);
+  if (after.serverId !== before.serverId || after.generation !== before.generation || sourceDigest() !== checkpoint.digest) {
     throw new Error('Source moved during capture');
   }
 
@@ -146,7 +151,7 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   let usedBytes = store.visualStorageBytes() + (existsSync(previews) ? previewUsage(previews) : 0);
   const brokenStates = new Set<string>();
   for (const { state, profile, result } of renders) {
-    const frame = { checkpointId: checkpoint.id, stateId: state.id, profileId: profile.id, captureMode: 'live' as const };
+    const frame = { checkpointId: checkpoint.id, stateId: state.id, profileId: profile.id, captureMode };
     if (result.status !== 'captured') {
       store.recordScreenFrame({ ...frame, status: result.status, reason: result.reason });
       if (result.status === 'path_broken') brokenStates.add(state.id);
@@ -188,7 +193,8 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
         ...frame, status: unchanged ? 'unchanged' : 'captured', imageDigest, components,
         ...(unchanged ? { unchangedFrom: previous!.unchangedFrom ?? previous!.checkpointId } : {}),
       });
-      store.updateUiStateComponents(state.id, [...new Set(result.components.map((item) => item.key))].sort());
+      // A state's component list describes the app as it is now; old replays must not rewrite it.
+      if (captureMode === 'live') store.updateUiStateComponents(state.id, [...new Set(result.components.map((item) => item.key))].sort());
       summary[unchanged ? 'unchanged' : 'captured']++;
     } catch (error) {
       store.recordScreenFrame({ ...frame, status: 'failed', reason: error instanceof Error ? error.message : String(error) });
@@ -196,7 +202,8 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
     }
   }
   // A state is broken only if no profile could follow its path; a working profile keeps it active.
-  for (const state of selected) {
+  // Status reflects the current app too, so only live captures mark paths broken or repaired.
+  for (const state of captureMode === 'live' ? selected : []) {
     const followed = renders.some((item) => item.state.id === state.id && item.result.status !== 'path_broken');
     if (brokenStates.has(state.id) && !followed) store.markUiStatePathBroken(state.id);
     else if (followed && state.status === 'path_broken') store.setUiStateStatus(state.id, 'active');
@@ -205,7 +212,7 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
     for (const profile of profiles) {
       if (store.hasScreenFrame(checkpoint.id, state.id, profile.id)) continue;
       store.recordScreenFrame({
-        checkpointId: checkpoint.id, stateId: state.id, profileId: profile.id, status: 'skipped', captureMode: 'live',
+        checkpointId: checkpoint.id, stateId: state.id, profileId: profile.id, status: 'skipped', captureMode,
         reason: `Over the ${options.maxFrames ?? MAX_FRAMES_PER_CHECKPOINT}-frame budget for one update`,
       });
       summary.skipped++;

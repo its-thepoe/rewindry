@@ -166,7 +166,7 @@ export class ViewerServer {
           .filter((version) => stateId === null || version.stateId === stateId);
         return this.json(response, { versions: versions.map((version) => ({
           checkpointId: version.checkpointId, ...iterations.get(version.checkpointId), stateId: version.stateId,
-          profileId: version.profileId, occurrence: version.occurrence, box: version.box,
+          profileId: version.profileId, occurrence: version.occurrence, box: version.box, captureMode: version.captureMode,
           ...(version.unchangedFrom ? { unchangedFrom: version.unchangedFrom, unchangedFromIteration: iterations.get(version.unchangedFrom)?.iteration } : {}),
           imageUrl: `/api/visuals/${version.cropDigest}.png`,
         })) });

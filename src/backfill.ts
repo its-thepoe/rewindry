@@ -15,6 +15,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { captureBackfillVariants, type BackfillCaptureOptions, type PreviewRecord } from './capture.ts';
 import { WorkspaceStore, type Checkpoint } from './store.ts';
+import { captureUiHistory, type UiCaptureSummary } from './ui-capture.ts';
 
 const BACKFILL_IDENTITY_PATH = '/__rewindry/backfill-preview';
 const PRIVATE_COMPONENT = /(?:^\.env(?:\..*)?$|secret|credential|private[-_]?key)/i;
@@ -22,12 +23,17 @@ const FORBIDDEN_COMPONENTS = new Set(['.rewindry', '.git', 'node_modules', 'dist
 const CHECKPOINT_ID = /^[a-f0-9-]{36}$/;
 
 export type BackfillIo = { out: (line: string) => void; error: (line: string) => void };
-export type BackfillSummary = { captured: number; partial: number; unavailable: number; stopped?: string };
+export type BackfillSummary = {
+  captured: number; partial: number; unavailable: number; stopped?: string;
+  screens: { captured: number; unchanged: number; pathBroken: number; failed: number; skipped: number; unavailable: number };
+};
 type SnapshotFile = { path: string; digest: string; size: number };
 type ReplayServer = { previewUrl: string; close: () => Promise<void> };
 export type BackfillServices = {
   startPreview?: (root: string, appId: string, checkpointId: string) => Promise<ReplayServer>;
   capture?: typeof captureBackfillVariants;
+  // Per-screen history replay. Defaults to the real renderer unless the preview server is injected.
+  captureUi?: typeof captureUiHistory;
 };
 
 function sha256(value: Buffer | string): string {
@@ -206,11 +212,13 @@ async function startHistoricalPreview(activeRoot: string, root: string, appId: s
   }
 }
 
-function currentPreviewConfig(root: string): { preview?: { appId?: unknown; targets?: unknown } } {
+type PreviewConfig = { preview?: { appId?: unknown; targets?: unknown; route?: unknown; profiles?: unknown } };
+
+function currentPreviewConfig(root: string): PreviewConfig {
   const path = join(root, '.rewindry', 'config.json');
   if (!existsSync(path)) return {};
   if (!lstatSync(path).isFile()) throw new Error('Invalid Rewindry config');
-  return JSON.parse(readFileSync(path, 'utf8')) as { preview?: { appId?: unknown; targets?: unknown } };
+  return JSON.parse(readFileSync(path, 'utf8')) as PreviewConfig;
 }
 
 function statusOf(record: PreviewRecord): 'captured' | 'partial' | 'unavailable' {
@@ -231,8 +239,13 @@ export async function runBackfill(
   const config = currentPreviewConfig(canonicalRoot);
   const appId = appIdFor(canonicalRoot, config);
   const checkpoints = store.list();
-  const summary: BackfillSummary = { captured: 0, partial: 0, unavailable: 0 };
+  const summary: BackfillSummary = {
+    captured: 0, partial: 0, unavailable: 0,
+    screens: { captured: 0, unchanged: 0, pathBroken: 0, failed: 0, skipped: 0, unavailable: 0 },
+  };
   const capture = services.capture ?? captureBackfillVariants;
+  const captureUi = services.captureUi ?? (services.startPreview ? undefined : captureUiHistory);
+  const route = typeof config.preview?.route === 'string' ? config.preview.route : undefined;
 
   for (let index = 0; index < checkpoints.length; index++) {
     const checkpoint = checkpoints[index]!;
@@ -268,6 +281,20 @@ export async function runBackfill(
             identityPath: BACKFILL_IDENTITY_PATH,
             targets: config.preview?.targets,
           });
+          // Learned screens replayed against this checkpoint's own saved files, labelled as replayed.
+          if (captureUi) {
+            try {
+              const screens: UiCaptureSummary = await captureUi(canonicalRoot, store, checkpoint, {
+                previewUrl: replay.previewUrl, appId, route, profiles: config.preview?.profiles,
+                identityPath: BACKFILL_IDENTITY_PATH, sourceDigest: sourceStore.currentDigest, captureMode: 'replayed',
+              });
+              for (const key of ['captured', 'unchanged', 'pathBroken', 'failed', 'skipped'] as const) summary.screens[key] += screens[key];
+              io.out(`Backfill ${checkpoint.id}: screens ${screens.captured} captured, ${screens.unchanged} unchanged, ${screens.pathBroken} unreachable, ${screens.failed} failed`);
+            } catch (error) {
+              summary.screens.unavailable++;
+              io.error(`Backfill ${checkpoint.id}: screens unavailable (${error instanceof Error ? error.message : String(error)})`);
+            }
+          }
         }
       }
       if (!record) throw new Error('Historical preview did not return a replay result');
@@ -289,6 +316,10 @@ export async function runBackfill(
     }
   }
   io.out(`Backfill complete: ${summary.captured} captured, ${summary.partial} partial, ${summary.unavailable} unavailable.`);
+  if (captureUi) {
+    const screens = summary.screens;
+    io.out(`Screen history: ${screens.captured} captured, ${screens.unchanged} unchanged, ${screens.pathBroken} unreachable, ${screens.failed} failed, ${screens.skipped} skipped${screens.unavailable ? `, ${screens.unavailable} checkpoints unavailable` : ''}.`);
+  }
   return summary;
 }
 

@@ -82,6 +82,7 @@ button:focus-visible, select:focus-visible, a:focus-visible {
 .stage-items figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 12px; color: #b9c7c6; }
 .stage-items figcaption strong { color: #fff; font-size: 14px; }
 .stage-items figcaption a { color: #7fd8cf; }
+.replay-note { flex-basis: 100%; margin: 0; padding: 6px 9px; border: 1px solid #e3c98a; border-radius: 4px; background: #fdf6e3; color: #5a4512; font-size: 12px; line-height: 1.4; }
 
 .filmstrip-region { display: grid; gap: 8px; min-width: 0; }
 .filmstrip-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }

@@ -162,6 +162,21 @@ test('per-screen capture keeps only real visual changes for screens and componen
     const budget = await captureUiHistory(root, store, store.snapshot('unattributed_group')!, { ...options, maxFrames: 2 });
     assert.deepEqual([budget.states, budget.skipped], [1, 2]);
 
+    // Replayed mode (backfill) labels frames and checks the given source tree, but never rewrites the
+    // state's current component list or path status from old code.
+    const statesBefore = store.listUiStates();
+    writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v5b');
+    const replayedCheckpoint = store.snapshot('unattributed_group')!;
+    writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'working tree moved on');
+    scene = { ...scene, broken: true };
+    const replayed = await captureUiHistory(root, store, replayedCheckpoint, { ...options, captureMode: 'replayed', sourceDigest: () => replayedCheckpoint.digest });
+    assert.equal(replayed.pathBroken, 2);
+    assert.deepEqual(store.listScreenFrames(landing.id).filter((frame) => frame.checkpointId === replayedCheckpoint.id).map((frame) => frame.captureMode), ['replayed', 'replayed']);
+    assert.ok(store.listComponentVersions('src/App.tsx#App').filter((version) => version.checkpointId === replayedCheckpoint.id).every((version) => version.captureMode === 'replayed'));
+    assert.deepEqual(store.listUiStates().map((item) => [item.id, item.status, item.components]), statesBefore.map((item) => [item.id, item.status, item.components]));
+    writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v5b');
+    scene = { ...scene, broken: false };
+
     // If the source changes while rendering, nothing from that run is published.
     writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v6');
     const raced = store.snapshot('unattributed_group')!;
