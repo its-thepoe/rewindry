@@ -12,7 +12,7 @@
 
 The original plans remain intact. Each document ends with a **Design and product engineering review addendum** containing proposed changes, the reason for each change, and concrete validation or implementation steps. These are recommendations awaiting a product decision; they do not silently replace the original requirements.
 
-**User-confirmed UI direction:** The timeline is for moving through recorded iterations. Show the visual and time; keep the live current working state last. Capture type and edit grouping are automatic internal rules, not choices or badges. Do not add thumbnails, changed-file counts, separate lanes, or filters. This corrects the earlier review's UI suggestions and takes precedence over them when planning the interface.
+**User-confirmed UI direction:** Keep one timeline for moving through recorded iterations and keep the live current working state last. Show the visual and time. Accessible **Screen/component** and **Viewport** selectors choose which saved visual to show for the selected iteration; they do not add timeline points, lanes, or filters. Capture type and edit grouping remain automatic internal rules, not choices or badges. This corrects the earlier review's UI suggestions and takes precedence over them when planning the interface.
 
 **Highest-impact recommendations:**
 

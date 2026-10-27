@@ -22,7 +22,7 @@
 | Frontend | React application using conventional Vite HTML entry | Frameworks with custom entry handling: standalone history viewer; no promise of overlay |
 | IDE/agent | Editor-neutral local file capture; boundary adapters tested separately for Cursor, Claude Code, Codex CLI | Unsupported editor, remote agent, unattached worktree: `Grouped edits`/not observed, not guaranteed one-per-prompt |
 | Storage | All **project-owned** data inside `<repo>/.rewindry/` | Only daemon binary, repo registrations, service logs and locks may live in user application-data directories |
-| Rendering | Single configured local URL/route and one viewport | Multiple routes, UI-state fixtures, deterministic mock APIs are later work |
+| Rendering | Up to 12 configured named route/component and viewport combinations per checkpoint; root page at 1280×800 when omitted | App supplies deterministic route/state and optional stable CSS selector; no framework discovery or historical backfill |
 | Git | Index locally reachable commits read-only | Missing commit objects/shallow history must be disclosed; Git history cannot recover uncommitted pre-install prompts |
 
 **Important interpretation:** `one turn = one iteration` is only promised for agent editions where *outer-turn start, completion and workspace identity can actually be correlated*. A completion-only event is useful but cannot, by itself, prevent premature manual-idle checkpoint creation. Agent capability must be measured and shown per installed edition.
@@ -120,7 +120,7 @@ macOS: user `launchd` LaunchAgent pointing to the stable installed runtime, runn
 - **Visible iteration / checkpoint:** immutable manifest of the complete eligible project source tree after a completed changed turn or grouped manual/unattributed period. One dot in the UI.
 - **Baseline:** initial working state on setup, visually different from later iterations; not misrepresented as an agent prompt.
 - **Git revision:** imported reachable commit, separately typed and rendered; not an agent iteration.
-- **Visual:** screenshot associated with one exact checkpoint manifest, route and viewport.
+- **Visual:** screenshot associated with one exact checkpoint manifest, named target (route and optional CSS selector), and named viewport profile.
 - **Confidence:** `confirmed` only for tested lifecycle correlation; `grouped` for quiet-time fallback; `overlap` for mixed concurrent writes.
 
 Suggested checkpoint kinds: `baseline`, `agent_turn`, `manual_group`, `unattributed_group`, `git_commit`.
@@ -255,7 +255,9 @@ my-project/
     index.sqlite
     manifests/<checkpoint-id>.json
     objects/ab/<sha256>
-    previews/<checkpoint-id>/<route-viewport>.webp
+    previews/<checkpoint-id>/primary.json
+    previews/<checkpoint-id>/primary.png
+    previews/<checkpoint-id>/<target-id>--<viewport-id>.png
     journal/events.jsonl
     cache/
     tmp/
@@ -350,12 +352,12 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 ### Pipeline
 
 1. Turn/group finaliser commits checkpoint `C` with immutable `tree_digest=D`.
-2. If a configured Vite dev preview is **already active** and permitted, enqueue at most **one primary visual job** keyed by `(C, route, viewport)`; a bounded retry does not create new jobs or dots.
+2. If a configured Vite dev preview is **already active** and permitted, enqueue one visual job for checkpoint `C`, then capture each configured target/profile combination sequentially; a bounded retry does not create new jobs or dots.
 3. Wait for the dev-server readiness signal and HMR settle (including page-load and selected fonts-ready checks). The UI overlay must be hidden or excluded from the screenshot.
 4. Re-hash the eligible source tree immediately **before** capture. If different from `D`, record `source_changed` and mark the checkpoint visual unavailable; do not display the latest UI as the old checkpoint.
-5. Browser navigates to the configured local URL, uses a fresh isolated context and captures screenshot with fixed viewport, device scale and colour scheme; await configured readiness and avoid clicking app controls or hitting production services.
+5. For each combination, a fresh isolated browser context navigates to its same-origin local route, applies the named viewport/device-emulation settings, and captures the page viewport or exactly one match for its CSS selector. Do not click app controls or hit production services. The first successful variant is also stored as `primary.png` for old clients.
 6. Re-hash immediately **after** the image is taken; attach only if both hashes equal `D`, the dev preview belongs to the intended registered workspace and route, and no readiness error was observed. Persist as `.webp` or `.png` plus metadata. Otherwise discard image and record an explicit status.
-7. Handle rapid sequential turns with back-pressure. If current source has moved on, old source-only dots stay navigable; **MVP must not execute earlier source to repair missing images**.
+7. Handle rapid sequential turns with back-pressure. If current source has moved on, old source-only dots stay navigable; **do not execute earlier source or backfill missing images**.
 
 **Limits of verification:** Matching source digests does not guarantee the pixels are deterministic if the app uses remote APIs, local storage, date/time, random data or unseen environment files. The UI labels a capture `Recorded during development`, not a perfect deterministic reconstruction. Preview setup must support explicit local/test data assumptions.
 
@@ -365,7 +367,11 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 
 ### Screenshot settings (MVP)
 
-- One explicit route, e.g. `/`, at one fixed viewport (default proposal 1440×900; configurable).
+- `preview.targets` configures named routes and optional CSS selectors, each with named viewports; an absent target list preserves the root-page 1280×800 behavior. At most 12 target/profile combinations are accepted per checkpoint.
+- A component selector must match exactly one DOM element on a deterministic local route/state that the app provides. Rewindry does not discover React/Vue/etc. components, click UI controls, or inject app code to create state.
+- Width/height are integer pixels from 1 through 4096; IDs use lowercase letters, numbers and hyphens; IDs are unique within target and viewport lists. Each image records its route, selector, viewport/device settings, status, reason and filename.
+- The viewer and overlay provide accessible screen/component and viewport selectors for the current iteration. Selection is preserved through navigation; an unavailable variant is named as missing and is never replaced silently by a different image. The timeline remains one dot per source checkpoint.
+- Historical preview records with only `route`, `viewport` and `primary.png` remain readable as one default page/Desktop variant. Existing checkpoints are immutable and are not retroactively captured.
 - Only `127.0.0.1`/localhost URLs in default setup; no production websites, accidental external DNS requests or automatic cloud upload.
 - Browser session uses no persisted authentication unless developer explicitly configures safe local test state.
 - Fixed timeout with retry budget; missing visual does not block the source checkpoint.
@@ -607,3 +613,7 @@ Nine packages in §2 create cross-package interfaces before the critical event a
 - Existing source: §3, §5–9, §11–12, §16–17 above; product addendum A–F.
 - Official [Vite plugin API](https://vite.dev/guide/api-plugin.html) documents dev-server and HTML transform hooks; these hooks alone do not certify what a page rendered.
 - Official [Playwright screenshots guide](https://playwright.dev/docs/screenshots) documents image capture, not application-state determinism.
+
+### Follow-on implemented 17 October 2026 — named visual captures
+
+The Rewindry implementation stores named visual variants in filesystem preview records and PNG files; it does not add a SQLite schema or timeline lanes. Page targets capture a viewport screenshot. Selector targets capture one unique CSS match. Mobile viewport profiles use Playwright mobile and touch emulation when configured; opening the viewer on a phone does not resize an already stored screenshot. All successful target images count toward the existing 256 MiB preview budget. Failed target variants keep an explicit reason while successful siblings remain available. The API preserves the legacy `previewUrl`/`primary.png` contract and applies the same local-request, standalone cookie, checkpoint membership, path, symlink, and size checks to target images.

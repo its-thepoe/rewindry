@@ -36,6 +36,39 @@ The preview stays clear while the timeline is closed. Press `Alt+Shift+R` to ope
 
 The timeline is read-only: it does not restore, revert, apply, or execute historical code. It is a sequence of local browser captures, not a video recording.
 
+## Named visual captures
+
+By default, Rewindry captures the root page at 1280×800. To capture specific screens or app-provided components at mobile and desktop sizes, add `targets` to the `preview` object in `.rewindry/config.json`:
+
+```json
+{
+  "preview": {
+    "targets": [
+      {
+        "id": "bingo-home",
+        "label": "Bingo home",
+        "route": "/",
+        "viewports": [
+          { "id": "mobile", "label": "Mobile", "width": 390, "height": 844, "isMobile": true, "hasTouch": true },
+          { "id": "desktop", "label": "Desktop", "width": 1280, "height": 800 }
+        ]
+      },
+      {
+        "id": "bingo-board",
+        "label": "Bingo board component",
+        "route": "/?screen=board",
+        "selector": "[data-rewindry-target=\"bingo-board\"]",
+        "viewports": [
+          { "id": "mobile", "label": "Mobile", "width": 390, "height": 844, "isMobile": true, "hasTouch": true }
+        ]
+      }
+    ]
+  }
+}
+```
+
+For a component capture, your app must render that component on a deterministic local route/state and mark one DOM root with a stable CSS selector. Rewindry takes a screenshot of that matching element; it does not discover framework components or click controls to create app state. The standalone viewer and dev overlay let you choose **Screen/component** and **Viewport** while staying on the same iteration. Each selection applies only to future captures; old checkpoints keep their saved images and are not backfilled.
+
 ## Commands
 
 Run these from the project root:

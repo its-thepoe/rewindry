@@ -21,7 +21,7 @@ Rewindry is an open-source, local-first visual history tool. It automatically re
 1. **Agent-driven edits:** One visible iteration is created only when a distinct **AI-agent user prompt/turn has finished**, and only if its final eligible source state differs from the preceding recorded state. All writes, saves, tool calls, retries and self-corrections *within* that turn are internal activity, **not separate timeline dots**.
 2. **Non-agent edits:** Eligible edits outside a known active agent turn are grouped into one visible manual iteration after a configurable quiet period (initial proposal: **15 seconds**). Later manual work separated by another quiet period becomes another iteration.
 3. **Unrecognised agents and unattributed writes:** Source changes remain observable, but the filesystem alone cannot distinguish human edits from unknown agents or prove prompt boundaries. The tool uses inactivity grouping and labels ambiguous activity **Grouped edits** (not a confirmed manual edit or completed prompt). Where an explicit integration establishes no agent is active, it may display **Manual iteration**.
-4. **Visual capture:** Queue one visual capture attempt **after** the visible checkpoint is finalised, not during intermediate agent writes; a screenshot is accepted only when its source association is verified. Dev-server absence produces a truthful source-only checkpoint.
+4. **Visual capture:** Queue one visual-capture job **after** the visible checkpoint is finalised, not during intermediate agent writes. It attempts each configured screen/component and viewport variant; every saved image is accepted only when its source association is verified. Dev-server absence produces a truthful source-only checkpoint.
 
 The local user-level watcher operates independently of a dev server; completion adapters supply prompt boundaries where supported. The bottom overlay and new screenshots are development-only. Git history can supply older *commit states*, not historic uncommitted prompt-by-prompt iterations or guaranteed screenshots.
 
@@ -48,7 +48,7 @@ The MVP helps developers review the visual progression of their work without com
 | Agent lifecycle integration | **Must have for declared agent/edition support** | Detect prompt start/end when supported; event sources are not equivalent across editions |
 | Source-only fallback | **Must have** | Unsupported/unidentified agents grouped by inactivity and labelled, without one-per-prompt guarantee |
 | Dev-only floating timeline | **Must have** | Small dot pill hidden by default; one dot per *visible* iteration, not per file save |
-| Visual screenshots | **Must have** | One final-state visual capture attempt per eligible visible iteration when preview is live |
+| Visual screenshots | **Must have** | One final-state capture job per eligible visible iteration; capture configured target/viewport variants when preview is live |
 | Play, pause, manual scrub | **Must have** | Frame-by-frame screenshots, not a recorded video |
 | Version metadata | **Must have** | Provenance, completion status, changed files, source digest, visual status |
 | Read-only code inspection/copy | **Must have** | View full historical files and diffs; copy selection/file/diff |
@@ -97,7 +97,7 @@ When agent hooks cannot be configured, source tracking and manual/unknown activi
 
 1. The developer uses Cursor, Codex, Claude Code, another editor or a terminal as usual. No `rewindry start`, separate shell or recurring command.
 2. When a **recognised agent turn begins**, the connector marks that workspace/session as `AGENT_ACTIVE`. Rewindry continues observing writes but creates no visible dots as the agent works.
-3. When that **turn completes**, Rewindry waits for pending writes to settle, freezes one source-tree checkpoint, and creates **one new dot**, if the source actually changed. An available dev preview then receives one screenshot request.
+3. When that **turn completes**, Rewindry waits for pending writes to settle, freezes one source-tree checkpoint, and creates **one new dot**, if the source actually changed. An available dev preview then receives one visual-capture job for its configured targets and viewports.
 4. If the developer instead edits files directly with **no recognised agent turn active**, Rewindry groups the edits when the quiet window elapses. It may identify a **Manual iteration** only when manual origin is supported; otherwise it says **Grouped edits**.
 5. The developer opens their normal `npm run dev` when they want a preview. Only in this local development interface is the Rewindry overlay injected.
 6. Clicking the small bottom trigger reveals the dot timeline. Selecting a dot shows its recorded screenshot (when available), changed files and Copy controls. It never changes working files.
@@ -141,13 +141,15 @@ The primary reference is a minimal bottom-centred dark pill containing small dot
 | Manual/unattributed iteration finalised | Append one dot labelled `Manual iteration` when origin is known; otherwise `Grouped edits` |
 | Unknown agent/grouped edits | Append grouped-edit dot, not incorrectly labelled `Agent turn completed` |
 | Hover/focus | Screenshot thumbnail, timestamp, type (agent/manual/Git/grouped), changed-file count, preview status |
-| Selected | Recorded screenshot, if available; else explicit `No visual available` and access to code |
+| Selected | Chosen screen/component and viewport image, if available; else an explicit missing-visual message and access to code |
 | Playing/scrubbing | Advance between finalised iterations only; source-only dots remain distinguishable |
 | Many checkpoints | Virtualised timeline or session/group view; accessible selection |
 | Code drawer | Read-only files/diffs, Copy selection/file/diff |
 | Capture paused | Explicit status; no claim of invisible background recording |
 
 Keyboard Left/Right, Space to play/pause, Home/End, Escape; focus equivalents for hover and touch-sized hit areas. Do not quietly replace old screenshots with today's live application. The developer may inspect an earlier dot without modifying the active workspace.
+
+Screen/component and viewport selectors change only the image displayed for the selected iteration. They preserve the selected iteration during scrubbing and playback and never create additional timeline dots or lanes. If a configured variant is unavailable for a historical iteration, keep the user's selection and explain which variant is missing.
 
 ## 9. User journeys
 
@@ -157,7 +159,7 @@ Keyboard Left/Right, Space to play/pause, Home/End, Escape; focus equivalents fo
 2. Cursor updates JSX, changes CSS, imports assets, runs tests, fixes spacing and waits 25 seconds for a command. Rewindry observes file writes but shows **zero new dots**.
 3. Cursor finishes the *user turn*. The connector sends one completion event, linked to the active turn.
 4. Rewindry allows pending writes to settle, freezes the final changed source tree and adds **one** timeline dot. No second dot appears if a duplicate completion event arrives.
-5. If the dev preview is active, one screenshot attempt is made for this final source state. Developer scrubs to the new dot and can inspect/copy historical code.
+5. If the dev preview is active, Rewindry attempts the configured screen/component and viewport captures for this final source state. The developer scrubs to the same single dot, chooses the visual, and can inspect/copy historical code.
 
 ### B — Manual development between agent prompts
 
@@ -217,7 +219,7 @@ Keyboard Left/Right, Space to play/pause, Home/End, Escape; focus equivalents fo
 - **Turn manager:** correlates agent lifecycle events with a project/worktree and session/turn identity. A recognised `turn-start` suppresses manual idle checkpoint creation for activity associated with that active turn.
 - **Idle grouper:** when no known agent turn owns the edits, accumulates writes and waits for a configurable quiet period, initially **15,000 ms** (default is a proposal to beta-test). It finalises one visible checkpoint. If manual origin is unproven, label **Grouped edits**, not **Manual iteration**.
 - **Finaliser:** on an agent's **outer user-turn completion**, waits for pending writes to settle (short file-stability window), hashes the final eligible repository tree, and persists **one immutable checkpoint only if content changed**. Repeated completion notifications with the same provider/session/turn ID must be idempotent.
-- **Visual scheduler:** receives only finalised checkpoint IDs, never raw file-write events; it queues at most one default-route screenshot attempt per finalised iteration.
+- **Visual scheduler:** receives only finalised checkpoint IDs, never raw file-write events; it queues one capture job per finalised iteration and attempts its configured target/viewport variants.
 
 ### Event contract (illustrative internal API)
 
@@ -271,7 +273,7 @@ A screenshot belongs to a **finalised agent/manual/Git checkpoint**, never a tra
 5. Save source digest, checkpoint ID, route, viewport, capture time, readiness and preview status. A source-only checkpoint remains a valid timeline item.
 6. Limit the screenshot worker to the **final state of each visible iteration**; optional internal file-write journals must not trigger extra captures. Do not block the developer's agent while screenshots are attempted.
 
-Identical source does not guarantee identical browser output: network responses, state, sessions, animations and external assets can differ. Prefer deterministic fixtures where possible. MVP supports one configured route and desktop viewport in React/Vite; no historical live execution or retroactive screenshot backfills are promised.
+Identical source does not guarantee identical browser output: network responses, state, sessions, animations and external assets can differ. Prefer deterministic fixtures where possible. Rewindry supports up to 12 configured route/component and viewport combinations per checkpoint, with a root-page 1280×800 default; no framework component discovery, historical live execution, or retroactive screenshot backfills are promised.
 
 ## 13. Git import, what it can and cannot do
 
@@ -317,7 +319,7 @@ Cursor / Claude Code / Codex CLI       Manual editor / unknown agent
                           |
           local dev-only dot timeline + code Copy
                           ^
-               one screenshot request per
+               one target/profile capture job per
                finalised checkpoint (if live)
                           ^
                React/Vite dev preview
@@ -454,7 +456,7 @@ If a repo moves, re-register it rather than assuming the old absolute location i
 
 ### Visual and timeline
 
-17. One finalised changed checkpoint queues **at most one primary-route screenshot job** (which may retry on readiness/source-race failures); intermediate writes never queue historical screenshots.
+17. One finalised changed checkpoint queues **one visual job** for its configured targets and viewports (which may retry on readiness/source-race failures); the first successful variant is the legacy primary image, and intermediate writes never queue historical screenshots.
 18. The screenshot shown for a dot is associated with that precise source digest; if source has moved on, the old dot is source-only, never represented by the new UI.
 19. In local development the hidden trigger reveals a small bottom dot pill. Timeline plays/scrubs among finalised iterations, with missing visuals disclosed; review never modifies project files.
 20. Production builds/deployed sites contain no timeline overlay, screenshot-control routes or source/history blobs.
@@ -497,7 +499,7 @@ These are milestones in one **read-only visual-history MVP**, not separate user-
 - Importing proprietary agent-private snapshot databases, prompts or uncommitted histories from before installation.
 - Automatic historical screenshot reconstruction and execution of older dependencies.
 - Cloud-agent instrumentation, unsupported/unwatched worktrees, fully general multi-framework capture.
-- Semantic component/AST history and multi-route or multi-state visual capture beyond the supported MVP fixture.
+- Automatic framework component discovery, arbitrary app-state construction and source/AST component history. Named routes and app-marked DOM captures are supported through explicit configuration.
 - Capturing every intermediate file change as a visible checkpoint. **Explicitly prohibited for known active AI turns.**
 
 ## 24. Open decisions for validation (not blockers to the checkpoint policy)
@@ -507,7 +509,7 @@ These are milestones in one **read-only visual-history MVP**, not separate user-
 3. **Concurrent turns:** display an overlapping-activity marker and shared-tree warning; decide whether to suppress screenshot attempts while another agent is still writing.
 4. **Interrupted turns:** retain diagnostic hidden state only by default; consider an explicit `Incomplete work` drawer later, separate from the main timeline.
 5. **Visual replay rate:** proposed one displayed finalised screenshot per second; source-only dots remain navigable and clearly marked.
-6. **Route selection:** start with one explicit route/viewport; multi-route scenarios only after validating source-to-screenshot fidelity.
+6. **Target configuration:** keep the 12-variant bound; app owners supply deterministic local routes/states and stable CSS selectors when they need component captures. Rewindry does not infer these from source.
 7. **Retention:** determine a practical screenshot quota after measuring real front-end project sizes; never prune pinned completed snapshots silently.
 
 ## 25. Technical references for agent boundary and development capture
@@ -548,7 +550,7 @@ The primary job in §3 is to find an earlier UI direction and inspect its code. 
 
 The PRD combines a persistent OS agent, multiple agent integrations, installer config edits, Git import, visual capture, timeline playback, and code inspection as release blockers (§4, §20). Each is plausible, but their combined integration surface is large before the core value is validated.
 
-**Proposed first supported release:** One declared macOS version, one conventional React/Vite template, one verified paired-boundary agent edition, one route/viewport, local source checkpoints, verified best-effort screenshots, timeline selection, and historical code/diff Copy. The watcher and viewer should still work if the preview is off. Keep one-command setup as the target, but gate its invasive service and config edits on a tested prototype. Make additional agents, Git import, slideshow playback, and broad installer automation follow-on release candidates unless user testing proves one is necessary for the primary recovery task. This is an explicit proposal to revise §4 and §20, not a claim that the current MVP already has that scope.
+**Proposed first supported release:** One declared macOS version, one conventional React/Vite template, one verified paired-boundary agent edition, local source checkpoints, configured named visual targets, timeline selection, and historical code/diff Copy. Without target configuration, capture keeps the root-page 1280×800 default. The watcher and viewer should still work if the preview is off. Keep one-command setup as the target, but gate its invasive service and config edits on a tested prototype. Make additional agents, Git import, slideshow playback, and broad installer automation follow-on release candidates unless user testing proves one is necessary for the primary recovery task. This is an explicit proposal to revise §4 and §20, not a claim that all proposed scope is already shipped.
 
 **Decision test:** After the first vertical slice, have developers use it on a real two-hour UI task. Measure whether they voluntarily revisit a prior iteration and what they try to do next. Promote a deferred feature only when it removes an observed blocker.
 

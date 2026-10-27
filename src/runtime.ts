@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { captureCheckpoint, type PreviewRecord } from './capture.ts';
+import { captureCheckpoint, type PageCapture, type PreviewRecord } from './capture.ts';
 import { WorkspaceObserver } from './observer.ts';
 import { WorkspaceStore, type Checkpoint } from './store.ts';
 import { TurnManager, type AgentEvent, type Clock } from './turn-manager.ts';
@@ -15,11 +15,11 @@ export class RewindryRuntime {
   readonly captureResults = new Map<string, PreviewRecord>();
   private readonly captureJobs = new Map<string, Promise<PreviewRecord>>();
   private readonly root: string;
-  private readonly previewOverride?: { url: string; appId: string; route?: string; capturePage?: (url: string, viewport: { width: number; height: number }) => Promise<Buffer> };
+  private readonly previewOverride?: { url: string; appId: string; route?: string; targets?: unknown; capturePage?: PageCapture };
 
   constructor(root: string, options?: {
     clock?: Clock; manualQuietMs?: number; settleMs?: number; staleTurnMs?: number; rescanIntervalMs?: number;
-    preview?: { url: string; appId: string; route?: string; capturePage?: (url: string, viewport: { width: number; height: number }) => Promise<Buffer> };
+    preview?: { url: string; appId: string; route?: string; targets?: unknown; capturePage?: PageCapture };
   }) {
     const canonicalRoot = realpathSync(root);
     this.root = canonicalRoot;
@@ -65,6 +65,7 @@ export class RewindryRuntime {
       previewUrl: preview.url,
       appId: preview.appId,
       route: preview.route,
+      targets: preview.targets,
       capturePage: preview.capturePage,
       retrySourceOnly,
     }).then((record) => {
@@ -81,11 +82,16 @@ export class RewindryRuntime {
     if (!existsSync(configPath)) return undefined;
     try {
       const configured = JSON.parse(readFileSync(configPath, 'utf8')) as {
-        preview?: { url?: unknown; appId?: unknown; route?: unknown };
+        preview?: { url?: unknown; appId?: unknown; route?: unknown; targets?: unknown };
       };
       const preview = configured.preview;
       if (typeof preview?.url !== 'string' || typeof preview.appId !== 'string') return undefined;
-      return { url: preview.url, appId: preview.appId, ...(typeof preview.route === 'string' ? { route: preview.route } : {}) };
+      return {
+        url: preview.url,
+        appId: preview.appId,
+        ...(typeof preview.route === 'string' ? { route: preview.route } : {}),
+        ...(preview.targets !== undefined ? { targets: preview.targets } : {}),
+      };
     } catch {
       return undefined;
     }

@@ -1,6 +1,6 @@
 # Rewindry project status
 
-Updated: 20 October 2026
+Updated: 27 October 2026
 
 Legend: 🟢 done · 🟡 in progress · 🔴 blocked · ⚪ not started. A milestone is green only when its exit gate has evidence.
 
@@ -18,7 +18,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M2 / G2 Turn manager | 🟡 in progress | Synthetic boundary suite and two consecutive real Claude changed turns pass, including a three-file/30-second-pause turn; 100-write/60-second host stress and cross-host edge cases remain. |
 | M3 / G3 Agent adapters | 🟡 in progress | Setup detects local agent versions without login and installs verified Codex, Cursor IDE 3.24.9, and Claude hooks automatically; Cursor edit-to-checkpoint evidence remains. |
 | M4 / G4 Installation and daemon | 🟡 in progress | `0.1.3` setup and status report active capture in `case-files`; daemon now isolates dropped-client socket errors and the disconnect regression passes. OS sleep/wake, reboot and real permission-denial checks remain. |
-| M5 / G5 Visual capture and timeline | 🟡 in progress | Published `0.1.3` now registers the Vite IPv6 loopback URL; the real project's preview endpoint responds. A captured visual from the restarted project is still unverified. |
+| M5 / G5 Visual capture and timeline | 🟡 in progress | Published `0.1.3` now registers the Vite IPv6 loopback URL; the real project's preview endpoint responds. A captured visual from the restarted project is still unverified. Named visual targets (M5-11) merged to `main` 27 Oct 2026; post-merge E2E awaits a Playwright Chromium install. Historical backfill (plan 002) stays on `codex/historical-visual-backfill` as a blocked WIP commit. |
 | M6 / G6 Code, Git and release | 🟡 in progress | `rewindry@0.1.5` is published as npm `latest`, and the registry confirms the version. The public root README is complete and included by the package build. Broader host/platform matrix and external observations remain. |
 | Revised G1 thin vertical slice | 🟢 done | Real Codex-plus-Vite vertical slice, process-kill recovery, and real two-root LaunchAgent restart/isolation pass. |
 | Revised G2 supported install | 🟡 in progress | One-command install/uninstall, moved-repo recovery and real multi-root service pass; real permission denial remains. |
@@ -103,6 +103,7 @@ Customer setup target: one Rewindry setup command discovers supported installed 
 | M5-08 | 🟢 | Standalone viewer visibly matches the 6px segments and compact controls; measured active segment 24×6px and bar 226×42px |
 | M5-09 | 🟢 | Real Codex-plus-Vite probe captured the final `State B` UI; automatic-Vite two-turn E2E proves distinct immutable images, exact source bytes, read-only overlay and production exclusion |
 | M5-10 | 🟡 | `case-files` Vite listens on `[::1]:3100`; Rewindry had advertised unreachable `127.0.0.1:3100`. Published `0.1.3` now registers `http://[::1]:3100/`, and the preview endpoint responds with `readiness: idle`; a real captured screenshot remains to be verified. |
+| M5-11 | 🟢 | Named route/component targets and mobile/desktop profiles are captured on one iteration; E2E verifies 390×844 and 1280×800 PNGs, successful/missing/duplicate selectors, selector persistence, mobile control fit and production exclusion. Legacy `primary.png` records remain readable; no historical backfill. `npm run typecheck`, all 87 unit tests, browser/Vite E2E and `npm run build` passed on the branch. Merged into `main` on 27 Oct 2026 (overlay focus-return and target controls both kept): typecheck, 87/87 unit tests and build pass after the merge; post-merge visual E2E is unverified because this machine lacks Playwright Chromium headless shell 1248 (only 1223 installed), and the same E2E fails identically on pre-merge `main`. |
 
 ## M6 — Code, Git and release
 

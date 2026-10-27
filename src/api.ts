@@ -5,12 +5,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTwoFilesPatch } from 'diff';
 import type { Checkpoint, WorkspaceStore } from './store.ts';
-import type { PreviewRecord } from './capture.ts';
+import { previewTargetRecords, type PreviewRecord } from './capture.ts';
 import { readGitHistory } from './git-history.ts';
 import { safePreviewFile } from './preview-files.ts';
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const CHECKPOINT_ID = /^[a-f0-9-]{36}$/;
+const VISUAL_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
 export class ViewerServer {
   private server?: Server;
@@ -106,7 +107,16 @@ export class ViewerServer {
             ...(checkpoint.overlap ? { overlap: true } : {}),
             createdAt: checkpoint.createdAt,
             previewStatus: preview?.status ?? 'source_only',
-            ...(preview?.status === 'captured' ? { previewUrl: `/api/previews/${checkpoint.id}/primary.png` } : {}),
+            ...(preview?.status === 'captured' && safePreviewFile(this.root, checkpoint.id, 'primary.png')
+              ? { previewUrl: `/api/previews/${checkpoint.id}/primary.png` } : {}),
+            targets: preview ? previewTargetRecords(preview).map((target) => ({
+              ...target,
+              ...(target.status === 'captured' && VISUAL_ID.test(target.targetId) && VISUAL_ID.test(target.viewportId) && target.imageFile &&
+                (target.imageFile === 'primary.png' || target.imageFile === `${target.targetId}--${target.viewportId}.png`) &&
+                safePreviewFile(this.root, checkpoint.id, target.imageFile)
+                ? { imageUrl: `/api/previews/${checkpoint.id}/${encodeURIComponent(target.targetId)}/${encodeURIComponent(target.viewportId)}.png` }
+                : {}),
+            })) : [],
           };
         });
         return this.json(response, { checkpoints, live: { label: 'Current working state', ...(this.liveUrl ? { url: this.liveUrl } : {}) } });
@@ -143,10 +153,28 @@ export class ViewerServer {
       const imageMatch = /^\/api\/previews\/([^/]+)\/primary\.png$/.exec(url.pathname);
       if (imageMatch) {
         const id = imageMatch[1]!;
-        if (!CHECKPOINT_ID.test(id) || this.preview(id)?.status !== 'captured') {
+        if (!CHECKPOINT_ID.test(id) || !this.store.list().some((checkpoint) => checkpoint.id === id) || this.preview(id)?.status !== 'captured') {
           return this.respond(response, 404, 'Preview unavailable');
         }
         const path = safePreviewFile(this.root, id, 'primary.png');
+        if (!path) return this.respond(response, 404, 'Preview unavailable');
+        return this.respond(response, 200, readFileSync(path), 'image/png');
+      }
+      const targetImageMatch = /^\/api\/previews\/([^/]+)\/([a-z0-9][a-z0-9-]{0,47})\/([a-z0-9][a-z0-9-]{0,47})\.png$/.exec(url.pathname);
+      if (targetImageMatch) {
+        const id = targetImageMatch[1]!;
+        const targetId = targetImageMatch[2]!;
+        const viewportId = targetImageMatch[3]!;
+        if (!CHECKPOINT_ID.test(id) || !VISUAL_ID.test(targetId) || !VISUAL_ID.test(viewportId)) {
+          return this.respond(response, 404, 'Preview unavailable');
+        }
+        const preview = this.store.list().some((checkpoint) => checkpoint.id === id) ? this.preview(id) : null;
+        const target = preview ? previewTargetRecords(preview).find((item) => item.targetId === targetId && item.viewportId === viewportId) : undefined;
+        const expected = `${targetId}--${viewportId}.png`;
+        if (!target || target.status !== 'captured' || target.imageFile !== 'primary.png' && target.imageFile !== expected) {
+          return this.respond(response, 404, 'Preview unavailable');
+        }
+        const path = safePreviewFile(this.root, id, target.imageFile);
         if (!path) return this.respond(response, 404, 'Preview unavailable');
         return this.respond(response, 200, readFileSync(path), 'image/png');
       }

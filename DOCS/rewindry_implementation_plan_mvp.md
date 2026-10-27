@@ -145,7 +145,7 @@ If G2 fails, **do not build the visual timeline yet**.
 
 | ID | Work item | Depends on | Acceptance |
 |---|---|---|---|
-| M5-01 | Implement finalised-checkpoint screenshot queue keyed by checkpoint+route+viewport | G2, M1 | Intermediate agent writes never enqueue capture; one final job per changed turn |
+| M5-01 | Implement finalised-checkpoint visual queue with configured route/viewport variants | G2, M1 | Intermediate agent writes never enqueue capture; one visual job per changed turn |
 | M5-02 | Implement Vite dev readiness/HMR integration and safe local URL config | M0-06, M5-01 | Detect dev server off, compiler failure and configured route readiness |
 | M5-03 | Implement source-digest pre/post-capture validation, overlay hiding and safe Playwright context | M5-02 | Reject image if source moved; do not show current UI under old dot |
 | M5-04 | Save image metadata, preview statuses, retry budget and storage quotas | M5-03 | All failures show explicit source-only state and stable checkpoint remains readable |
@@ -154,8 +154,9 @@ If G2 fails, **do not build the visual timeline yet**.
 | M5-07 | Implement select, hover/focus thumbnail, play/pause, arrows, Home/End, Escape and responsive overflow | M5-06 | Works with 3, 30 and 1,000 dots, including source-only dots |
 | M5-08 | Implement standalone localhost viewer for when dev app is unavailable | M5-05 | Can browse existing screenshots without starting app |
 | M5-09 | Browser E2E: screenshot the correct final state after two agent turns | M5-01–08 | First dot not overwritten by second; no script/source changes during review |
+| M5-11 | Capture configured named routes and app-marked DOM components at named viewport/device profiles; publish a screen/component and viewport chooser in both viewers | M5-04, M5-07, M5-08 | Up to 12 variants per checkpoint; one dot remains one source iteration; missing variants stay explicit; legacy `primary.png` works; old source-only checkpoints are not backfilled |
 
-**Exit gate G5:** a fixture completes an agent prompt while Vite is running; one screenshot is captured for the final recorded state and one dot appears. Scrubbing shows recorded images; stopping Vite doesn't remove history; `vite build` produces no Rewindry UI/API/source assets.
+**Exit gate G5:** a fixture completes an agent prompt while Vite is running; configured route/component and viewport images are captured for the final recorded state and one dot appears. The chooser changes the image without moving that dot. Scrubbing shows recorded images; stopping Vite doesn't remove history; `vite build` produces no Rewindry UI/API/source assets.
 
 ## 10. Milestone 6 — Code inspection, Git import and release hardening
 

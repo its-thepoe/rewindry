@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WorkspaceStore } from './store.ts';
 import { safePreviewFile } from './preview-files.ts';
-import { captureCheckpoint } from './capture.ts';
+import { captureCheckpoint, previewTargetRecords, type PreviewRecord } from './capture.ts';
 
 const PREVIEW_PATH = '/__rewindry/preview';
 const ITERATIONS_PATH = '/__rewindry/iterations';
@@ -15,6 +15,7 @@ const ASSET_PATHS = new Map([
   ['/__rewindry/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
 ]);
 const CHECKPOINT_ID = /^[a-f0-9-]{36}$/;
+const VISUAL_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
 function localRequest(request: IncomingMessage): boolean {
   const address = request.socket.remoteAddress;
@@ -149,11 +150,15 @@ export function rewindryPreviewPlugin(appId: string) {
           const checkpoints = history().map((checkpoint) => {
             const recordPath = safePreviewFile(root, checkpoint.id, 'primary.json');
             let previewStatus = 'source_only';
+            let targets: ReturnType<typeof previewTargetRecords> = [];
+            let previewUrl: string | undefined;
             if (recordPath) {
               try {
-                const record = JSON.parse(readFileSync(recordPath, 'utf8')) as { status?: unknown };
+                const record = JSON.parse(readFileSync(recordPath, 'utf8')) as PreviewRecord;
+                targets = previewTargetRecords(record);
                 if (record.status === 'captured' && safePreviewFile(root, checkpoint.id, 'primary.png')) {
                   previewStatus = 'captured';
+                  previewUrl = `${IMAGE_PREFIX}${checkpoint.id}.png`;
                 }
               } catch { /* A partial record remains source-only until published. */ }
             }
@@ -162,7 +167,15 @@ export function rewindryPreviewPlugin(appId: string) {
               createdAt: checkpoint.createdAt,
               ...(checkpoint.overlap ? { overlap: true } : {}),
               previewStatus,
-              ...(previewStatus === 'captured' ? { previewUrl: `${IMAGE_PREFIX}${checkpoint.id}.png` } : {}),
+              ...(previewUrl ? { previewUrl } : {}),
+              targets: targets.map((target) => ({
+                ...target,
+                ...(target.status === 'captured' && VISUAL_ID.test(target.targetId) && VISUAL_ID.test(target.viewportId) && target.imageFile &&
+                  (target.imageFile === 'primary.png' || target.imageFile === `${target.targetId}--${target.viewportId}.png`) &&
+                  safePreviewFile(root, checkpoint.id, target.imageFile)
+                  ? { imageUrl: `${IMAGE_PREFIX}${checkpoint.id}/${encodeURIComponent(target.targetId)}/${encodeURIComponent(target.viewportId)}.png` }
+                  : {}),
+              })),
             };
           });
           respond(response, 200, 'application/json; charset=utf-8', JSON.stringify({ checkpoints }));
@@ -173,18 +186,29 @@ export function rewindryPreviewPlugin(appId: string) {
       server.middlewares.use(IMAGE_PREFIX, (request, response, next) => {
         if (request.method !== 'GET') return next();
         if (!localRequest(request)) return respond(response, 403, 'text/plain; charset=utf-8', 'Forbidden');
-        const match = /^([a-f0-9-]{36})\.png$/.exec(request.url?.slice(1) ?? '');
-        if (!match || !CHECKPOINT_ID.test(match[1])) return next();
-        const checkpointId = match[1];
+        const imagePath = request.url?.slice(1) ?? '';
+        const primaryMatch = /^([a-f0-9-]{36})\.png$/.exec(imagePath);
+        const targetMatch = /^([a-f0-9-]{36})\/([a-z0-9][a-z0-9-]{0,47})\/([a-z0-9][a-z0-9-]{0,47})\.png$/.exec(imagePath);
+        if (!primaryMatch && !targetMatch) return next();
+        const checkpointId = primaryMatch?.[1] ?? targetMatch?.[1];
+        if (!checkpointId || !CHECKPOINT_ID.test(checkpointId)) return next();
+        if (targetMatch && (!VISUAL_ID.test(targetMatch[2]!) || !VISUAL_ID.test(targetMatch[3]!))) return next();
         try {
           if (!history().some((checkpoint) => checkpoint.id === checkpointId)) return next();
           const recordPath = safePreviewFile(root, checkpointId, 'primary.json');
           if (!recordPath) return next();
-          const record = JSON.parse(readFileSync(recordPath, 'utf8')) as { status?: unknown };
+          const record = JSON.parse(readFileSync(recordPath, 'utf8')) as PreviewRecord;
           if (record.status !== 'captured') return next();
-          const imagePath = safePreviewFile(root, checkpointId, 'primary.png');
-          if (!imagePath) return next();
-          respond(response, 200, 'image/png', readFileSync(imagePath));
+          let filename = 'primary.png';
+          if (targetMatch) {
+            const target = previewTargetRecords(record).find((item) => item.targetId === targetMatch[2] && item.viewportId === targetMatch[3]);
+            const expected = `${targetMatch[2]}--${targetMatch[3]}.png`;
+            if (!target || target.status !== 'captured' || target.imageFile !== 'primary.png' && target.imageFile !== expected) return next();
+            filename = target.imageFile;
+          }
+          const imageFile = safePreviewFile(root, checkpointId, filename);
+          if (!imageFile) return next();
+          respond(response, 200, 'image/png', readFileSync(imageFile));
         } catch {
           respond(response, 503, 'text/plain; charset=utf-8', 'Image unavailable');
         }

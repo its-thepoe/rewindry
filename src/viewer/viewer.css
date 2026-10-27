@@ -72,6 +72,11 @@ button:focus-visible, select:focus-visible, .code-content:focus-visible {
   gap: 16px;
 }
 .preview-heading { display: flex; justify-content: space-between; align-items: end; gap: 16px; }
+.capture-controls { display: flex; align-items: end; gap: 12px; flex: none; }
+.capture-controls[hidden] { display: none; }
+.capture-control { display: grid; gap: 5px; min-width: 150px; }
+.capture-control label { color: #50686c; font-size: 11px; font-weight: 650; }
+.capture-control select { width: 100%; min-height: 36px; padding: 6px 28px 6px 9px; border: 1px solid #bccdca; border-radius: 4px; background: #fff; color: #223439; font-size: 12px; }
 .eyebrow { color: #698080; font-size: 11px; font-weight: 700; text-transform: uppercase; margin: 0 0 5px; }
 h1, h2 { margin: 0; font-size: 20px; line-height: 1.25; font-weight: 680; letter-spacing: 0; }
 .point-time { color: #52656b; font-size: 13px; white-space: nowrap; padding-bottom: 2px; }
@@ -251,6 +256,9 @@ h1, h2 { margin: 0; font-size: 20px; line-height: 1.25; font-weight: 680; letter
   .connection-status { max-width: 120px; }
   .preview-region { padding: 18px 16px 106px; }
   .preview-heading { align-items: start; flex-direction: column; gap: 4px; }
+  .capture-controls { width: 100%; gap: 8px; }
+  .capture-control { min-width: 0; flex: 1; }
+  .capture-control select { min-width: 0; }
   h1 { font-size: 18px; }
   .visual { min-height: 240px; }
   .code-panel {

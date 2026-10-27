@@ -23,6 +23,11 @@ async function port(): Promise<number> {
   return address.port;
 }
 
+function pngDimensions(image: Buffer): { width: number; height: number } {
+  assert.equal(image.toString('ascii', 1, 4), 'PNG');
+  return { width: image.readUInt32BE(16), height: image.readUInt32BE(20) };
+}
+
 async function until<T>(
   read: () => Promise<T> | T,
   accept: (value: T) => boolean,
@@ -46,7 +51,10 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
   assert.equal(statSync(resolve('dist/cli.js')).mode & 0o111, 0o111);
   const example = resolve('examples/vite-react');
   const root = mkdtempSync(join(tmpdir(), 'rewindry-visual-'));
-  const source = readFileSync(join(example, 'src', 'main.tsx'), 'utf8');
+  const source = readFileSync(join(example, 'src', 'main.tsx'), 'utf8').replace(
+    'return <main><h1>Rewindry preview fixture</h1><p>State A</p></main>;',
+    'const screen = new URLSearchParams(window.location.search).get("screen") ?? "home";\n  if (screen === "promo") return <main data-rewindry-target="promo-screen"><h1>Promo screen</h1><p>State A</p></main>;\n  return <main data-rewindry-target="bingo-home"><h1>Rewindry preview fixture</h1><p>State A</p>{screen === "board" && <section data-rewindry-target="bingo-board"><h2>Bingo board</h2><p>25 squares</p></section>}<div data-rewindry-target="duplicate-card">Card 1</div><div data-rewindry-target="duplicate-card">Card 2</div></main>;',
+  );
   mkdirSync(join(root, 'src'));
   mkdirSync(join(root, '.rewindry'));
   for (const name of ['index.html', 'package.json']) cpSync(join(example, name), join(root, name));
@@ -91,6 +99,33 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
     }, (preview) => Boolean(preview?.url), 'automatic preview URL');
     assert.equal(registered?.url, previewUrl);
     assert.match(registered?.appId ?? '', /^rewindry-[a-f0-9]{12}$/);
+    const configPath = join(root, '.rewindry', 'config.json');
+    const projectConfig = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+    const previewConfig = projectConfig.preview as Record<string, unknown>;
+    writeFileSync(configPath, JSON.stringify({
+      ...projectConfig,
+      preview: {
+        ...previewConfig,
+        targets: [
+          { id: 'bingo-home', label: 'Bingo home', route: '/', viewports: [
+            { id: 'mobile', label: 'Mobile', width: 390, height: 844, isMobile: true, hasTouch: true },
+            { id: 'desktop', label: 'Desktop', width: 1280, height: 800 },
+          ] },
+          { id: 'bingo-board', label: 'Bingo board component', route: '/?screen=board', selector: '[data-rewindry-target="bingo-board"]', viewports: [
+            { id: 'mobile', label: 'Mobile', width: 390, height: 844, isMobile: true, hasTouch: true },
+          ] },
+          { id: 'promo-screen', label: 'Promo screen', route: '/?screen=promo', viewports: [
+            { id: 'mobile', label: 'Mobile', width: 390, height: 844, isMobile: true, hasTouch: true },
+          ] },
+          { id: 'missing-component', label: 'Missing component', route: '/', selector: '[data-rewindry-target="not-present"]', viewports: [
+            { id: 'mobile', label: 'Mobile', width: 390, height: 844, isMobile: true, hasTouch: true },
+          ] },
+          { id: 'duplicate-component', label: 'Duplicate component', route: '/', selector: '[data-rewindry-target="duplicate-card"]', viewports: [
+            { id: 'mobile', label: 'Mobile', width: 390, height: 844, isMobile: true, hasTouch: true },
+          ] },
+        ],
+      },
+    }));
     runtime = new RewindryRuntime(root, {
       settleMs: 500, manualQuietMs: 1_000, rescanIntervalMs: 100,
     });
@@ -112,7 +147,7 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
     for (const turn of [1, 2]) {
       runtime.ingest(makeEvent('outer_turn_started', turn));
       const before = runtime.observedWrites;
-      writeFileSync(join(root, 'src', 'main.tsx'), source.replace('State A', `State ${turn === 1 ? 'B' : 'C'}`));
+      writeFileSync(join(root, 'src', 'main.tsx'), source.replaceAll('State A', `State ${turn === 1 ? 'B' : 'C'}`));
       await until(() => runtime!.observedWrites, (value) => value > before, `turn ${turn} write`);
       await new Promise((done) => setTimeout(done, 300));
       runtime.ingest(makeEvent('outer_turn_finished', turn));
@@ -121,6 +156,30 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
       assert.ok(checkpoint);
       assert.equal(runtime.captureResults.get(checkpoint.id)?.status, 'captured');
       assert.equal(runtime.captureResults.get(checkpoint.id)?.previewReadiness, 'idle');
+      const record = JSON.parse(readFileSync(join(root, '.rewindry', 'previews', checkpoint.id, 'primary.json'), 'utf8')) as {
+        targets: Array<{ targetId: string; viewportId: string; route: string; selector?: string; viewport: { width: number; height: number }; isMobile: boolean; hasTouch: boolean; status: string; reason?: string; imageFile?: string }>;
+      };
+      assert.equal(record.targets.length, 6);
+      const mobileHome = record.targets.find((target) => target.targetId === 'bingo-home' && target.viewportId === 'mobile');
+      const desktopHome = record.targets.find((target) => target.targetId === 'bingo-home' && target.viewportId === 'desktop');
+      const board = record.targets.find((target) => target.targetId === 'bingo-board');
+      const promo = record.targets.find((target) => target.targetId === 'promo-screen');
+      const missing = record.targets.find((target) => target.targetId === 'missing-component');
+      const duplicate = record.targets.find((target) => target.targetId === 'duplicate-component');
+      assert.deepEqual(mobileHome?.viewport, { width: 390, height: 844 });
+      assert.equal(mobileHome?.isMobile, true);
+      assert.equal(mobileHome?.hasTouch, true);
+      assert.equal(desktopHome?.status, 'captured');
+      assert.equal(board?.route, '/?screen=board');
+      assert.equal(board?.selector, '[data-rewindry-target="bingo-board"]');
+      assert.equal(promo?.route, '/?screen=promo');
+      assert.equal(promo?.status, 'captured');
+      assert.equal(missing?.status, 'source_only');
+      assert.match(missing?.reason ?? '', /matched 0 elements/);
+      assert.equal(duplicate?.status, 'source_only');
+      assert.match(duplicate?.reason ?? '', /matched 2 elements/);
+      assert.deepEqual(pngDimensions(readFileSync(join(root, '.rewindry', 'previews', checkpoint.id, mobileHome!.imageFile!))), { width: 390, height: 844 });
+      assert.deepEqual(pngDimensions(readFileSync(join(root, '.rewindry', 'previews', checkpoint.id, desktopHome!.imageFile!))), { width: 1280, height: 800 });
       images.push(readFileSync(join(root, '.rewindry', 'previews', checkpoint.id, 'primary.png')));
       assert.equal(runtime.store.readFile(checkpoint.id, 'src/main.tsx').toString().includes(`State ${turn === 1 ? 'B' : 'C'}`), true);
     }
@@ -154,6 +213,32 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
           return [marker.width, marker.height, marker.backgroundColor];
         }), ['24px', '6px', 'rgb(23, 25, 26)']);
         assert.equal(await overlay.locator('.dot.source-only').count(), 1);
+        const targetSelect = overlay.getByLabel('Screen or component');
+        const viewportSelect = overlay.getByLabel('Viewport');
+        assert.equal(await targetSelect.isVisible(), true);
+        assert.equal(await viewportSelect.isVisible(), true);
+        await targetSelect.selectOption('bingo-board');
+        assert.equal(await overlay.locator('.dot').nth(1).getAttribute('aria-current'), 'step');
+        await until(() => overlay.locator('.visual img').evaluate((image: HTMLImageElement) => image.naturalWidth), (width) => width > 0, 'component PNG');
+        assert.match(await overlay.locator('.visual img').getAttribute('src') ?? '', /bingo-board\/mobile\.png$/);
+        await overlay.locator('.dot').nth(2).click();
+        assert.equal(await targetSelect.inputValue(), 'bingo-board');
+        await targetSelect.selectOption('missing-component');
+        await until(() => overlay.locator('.missing').textContent(), (message) => /Missing component.*not captured/.test(message ?? ''), 'explicit missing component message');
+        assert.equal(await overlay.locator('.missing').isVisible(), true);
+        await targetSelect.selectOption('bingo-home');
+        await viewportSelect.selectOption('desktop');
+        await until(() => overlay.locator('.visual img').evaluate((image: HTMLImageElement) => image.naturalWidth), (width) => width === 1280, 'desktop image variant');
+        assert.equal(await overlay.locator('.dot.selected').getAttribute('aria-current'), 'step');
+        const controlsFit = await overlay.locator('.capture-controls').evaluate((element) => {
+          const box = element.getBoundingClientRect();
+          return box.left >= 0 && box.right <= innerWidth;
+        });
+        assert.equal(controlsFit, true);
+        await overlay.locator('.dot').nth(1).click();
+        assert.equal(await targetSelect.inputValue(), 'bingo-home');
+        assert.equal(await viewportSelect.inputValue(), 'desktop');
+        assert.equal(await overlay.locator('.dot').nth(1).getAttribute('aria-current'), 'step');
         await until(() => overlay.locator('.visual img').evaluate((image: HTMLImageElement) => image.naturalWidth), (width) => width > 0, 'historical PNG');
         assert.match(await overlay.locator('.visual img').getAttribute('src') ?? '', /__rewindry\/image\//);
         await overlay.locator('.dot').nth(2).hover();
@@ -204,7 +289,7 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
 
       viewer = new ViewerServer(root, runtime.store, previewUrl);
       const viewerUrl = await viewer.start();
-      const viewerPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      const viewerPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
       await viewerPage.goto(viewerUrl, { waitUntil: 'networkidle' });
       await until(() => viewerPage.locator('#git-summary').textContent(), (label) => /1 commits/.test(label ?? ''), 'Git index');
       assert.equal(await viewerPage.locator('#git-progress').isHidden(), true);
@@ -212,10 +297,26 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
       assert.equal(await viewerPage.locator('#git-list li').count(), 1);
       assert.match(await viewerPage.locator('#git-list').textContent() ?? '', /Initial fixture/);
       assert.equal(await viewerPage.locator('#timeline .point-button').count(), 4);
-      assert.deepEqual(await viewerPage.locator('#timeline .point-button.is-selected').evaluate((dot) => {
+      await viewerPage.locator('#timeline .point-button').nth(2).click();
+      await until(() => viewerPage.locator('#timeline .point-button.is-selected').evaluate((dot) => {
         const marker = getComputedStyle(dot, '::before');
         return [marker.width, marker.height, marker.backgroundColor];
-      }), ['24px', '6px', 'rgb(23, 25, 26)']);
+      }), (marker) => marker[0] === '24px' && marker[2] === 'rgb(23, 25, 26)', 'selected iteration marker');
+      const standaloneTarget = viewerPage.getByLabel('Screen or component');
+      const standaloneViewport = viewerPage.getByLabel('Viewport');
+      assert.equal(await standaloneTarget.isVisible(), true);
+      await standaloneTarget.selectOption('bingo-board');
+      assert.equal(await viewerPage.locator('#timeline .point-button.is-selected').count(), 1);
+      await viewerPage.locator('#timeline .point-button').nth(1).click();
+      assert.equal(await standaloneTarget.inputValue(), 'bingo-board');
+      await standaloneTarget.selectOption('missing-component');
+      await until(() => viewerPage.locator('#visual-message').textContent(), (message) => /Missing component.*not captured/.test(message ?? ''), 'standalone missing target message');
+      const standaloneControlsFit = await viewerPage.locator('#capture-controls').evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return box.left >= 0 && box.right <= innerWidth;
+      });
+      assert.equal(standaloneControlsFit, true);
+      assert.equal(await viewerPage.locator('#timeline .point-button').nth(1).getAttribute('aria-current'), 'step');
       await viewerPage.close();
     } finally {
       await browser.close();
@@ -234,7 +335,7 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
     await new Promise<void>((done) => devServer.once('exit', () => done()));
     runtime.ingest(makeEvent('outer_turn_started', 3));
     const beforeOfflineWrite = runtime.observedWrites;
-    writeFileSync(join(root, 'src', 'main.tsx'), source.replace('State A', 'State D'));
+    writeFileSync(join(root, 'src', 'main.tsx'), source.replaceAll('State A', 'State D'));
     await until(() => runtime!.observedWrites, (value) => value > beforeOfflineWrite, 'offline turn write');
     runtime.ingest(makeEvent('outer_turn_finished', 3));
     await until(() => runtime!.captureResults.size, (size) => size === 3, 'offline source-only record');
@@ -250,7 +351,10 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
     }, (record) => record.status === 'captured', 'automatic source-only retry');
     assert.equal(retried.attempts, 2);
 
+    const beforeBrokenWrite = await (await fetch(`${previewUrl}__rewindry/preview`)).json() as { generation: number };
     writeFileSync(join(root, 'src', 'main.tsx'), 'export const broken = ;');
+    await until(async () => (await fetch(`${previewUrl}__rewindry/preview`)).json() as Promise<{ generation: number }>,
+      (identity) => identity.generation > beforeBrokenWrite.generation, 'broken source generation');
     const broken = runtime.store.snapshot('unattributed_group');
     assert.ok(broken);
     const compilerFailure = await captureCheckpoint(root, runtime.store, broken, {
