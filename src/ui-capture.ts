@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright';
 import { identity, localPreview, previewUsage } from './capture.ts';
 import { collectComponentMap, type ComponentInstance } from './component-map.ts';
 import { cropImage, decodePng, encodePng } from './png.ts';
 import type { Checkpoint, ComponentVersionInput, UiState, WorkspaceStore } from './store.ts';
-import { LANDING_SET, type InteractionStep, type Locator } from './ui-states.ts';
+import { LANDING_SET, projectRelativeKey, type InteractionStep, type Locator } from './ui-states.ts';
 
 export type CaptureProfile = {
   id: string; label: string; width: number; height: number; isMobile: boolean; hasTouch: boolean; deviceScaleFactor: number;
@@ -21,10 +21,14 @@ const MAX_PROFILES = 6;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_VISUAL_BYTES = 256 * 1024 * 1024;
 const MAX_COMPONENTS_PER_FRAME = 400;
+const MAX_SCROLL_SHOTS = 8;
 const PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
+export type RenderShot = { png: Buffer; components: ComponentInstance[] };
+// `png` is the frame. When the page scrolls inside an inner container rather than the document,
+// `shots` holds further viewport screenshots at later scroll positions, used only for crops.
 export type RenderResult =
-  | { status: 'captured'; png: Buffer; components: ComponentInstance[] }
+  | { status: 'captured'; png: Buffer; components: ComponentInstance[]; shots?: RenderShot[] }
   | { status: 'path_broken' | 'failed'; reason: string };
 export type FrameRenderer = {
   render(url: string, profile: CaptureProfile, path: InteractionStep[]): Promise<RenderResult>;
@@ -35,6 +39,8 @@ export type UiCaptureOptions = {
   // Backfill renders a checkpoint's saved files on an isolated server: its identity endpoint,
   // its temporary tree's digest, and frames labelled as replayed rather than live.
   identityPath?: string; sourceDigest?: () => string; captureMode?: 'live' | 'replayed';
+  // The directory the preview serves; React 18 file paths are made relative to it (backfill's temporary copy).
+  sourceRoot?: string;
 };
 export type UiCaptureSummary = {
   states: number; captured: number; unchanged: number; pathBroken: number; failed: number; skipped: number;
@@ -103,6 +109,27 @@ export function selectStates(states: UiState[], changed: Set<string>, landingId:
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
+// For each component instance, the first screenshot that shows all of it; otherwise the one
+// showing the most of it. Instances keep the frame's order, then any seen only after scrolling.
+export function pickCropSources(shots: { image: { width: number; height: number }; components: ComponentInstance[] }[], scale: number): (ComponentInstance & { shot: number })[] {
+  const visible = (box: ComponentInstance['box'], image: { width: number; height: number }) => {
+    const width = Math.min(image.width, (box.x + box.width) * scale) - Math.max(0, box.x * scale);
+    const height = Math.min(image.height, (box.y + box.height) * scale) - Math.max(0, box.y * scale);
+    return width > 0 && height > 0 ? width * height : 0;
+  };
+  const chosen = new Map<string, ComponentInstance & { shot: number; whole: boolean; area: number }>();
+  shots.forEach((shot, index) => {
+    for (const instance of shot.components) {
+      const id = `${instance.key}@${instance.occurrence}`;
+      const area = visible(instance.box, shot.image);
+      const whole = area > 0 && area >= instance.box.width * instance.box.height * scale * scale - 1;
+      const current = chosen.get(id);
+      if (!current || (!current.whole && (whole || area > current.area))) chosen.set(id, { ...instance, shot: index, whole, area });
+    }
+  });
+  return [...chosen.values()].filter((item) => item.area > 0).map(({ whole: _whole, area: _area, ...item }) => item);
+}
+
 export async function captureUiHistory(root: string, store: WorkspaceStore, checkpoint: Checkpoint, options: UiCaptureOptions): Promise<UiCaptureSummary> {
   const summary: UiCaptureSummary = { states: 0, captured: 0, unchanged: 0, pathBroken: 0, failed: 0, skipped: 0 };
   const base = localPreview(options.previewUrl);
@@ -148,6 +175,11 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   }
 
   const previews = join(root, '.rewindry', 'previews');
+  const sourceRoot = realpathSync(options.sourceRoot ?? root);
+  const relativeComponents = (components: ComponentInstance[]) => components.flatMap((instance) => {
+    const key = projectRelativeKey(instance.key, sourceRoot);
+    return key ? [{ ...instance, key, file: key.slice(0, key.lastIndexOf('#')) }] : [];
+  });
   let usedBytes = store.visualStorageBytes() + (existsSync(previews) ? previewUsage(previews) : 0);
   const brokenStates = new Set<string>();
   for (const { state, profile, result } of renders) {
@@ -166,12 +198,13 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
       const pending = new Map<string, Buffer>();
       if (!unchanged) pending.set(imageDigest, result.png);
 
-      const image = decodePng(result.png);
       const scale = profile.deviceScaleFactor;
+      const shots = [{ png: result.png, components: result.components }, ...(result.shots ?? []).slice(0, MAX_SCROLL_SHOTS)]
+        .map((shot) => ({ image: decodePng(shot.png), components: relativeComponents(shot.components) }));
       const previousCrops = store.previousComponentCrops(checkpoint.id, state.id, profile.id);
       const components: ComponentVersionInput[] = [];
-      for (const instance of result.components.slice(0, MAX_COMPONENTS_PER_FRAME)) {
-        const crop = cropImage(image, {
+      for (const instance of pickCropSources(shots, scale).slice(0, MAX_COMPONENTS_PER_FRAME)) {
+        const crop = cropImage(shots[instance.shot]!.image, {
           x: instance.box.x * scale, y: instance.box.y * scale, width: instance.box.width * scale, height: instance.box.height * scale,
         });
         if (!crop) continue;
@@ -194,7 +227,7 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
         ...(unchanged ? { unchangedFrom: previous!.unchangedFrom ?? previous!.checkpointId } : {}),
       });
       // A state's component list describes the app as it is now; old replays must not rewrite it.
-      if (captureMode === 'live') store.updateUiStateComponents(state.id, [...new Set(result.components.map((item) => item.key))].sort());
+      if (captureMode === 'live') store.updateUiStateComponents(state.id, [...new Set(shots[0]!.components.map((item) => item.key))].sort());
       summary[unchanged ? 'unchanged' : 'captured']++;
     } catch (error) {
       store.recordScreenFrame({ ...frame, status: 'failed', reason: error instanceof Error ? error.message : String(error) });
@@ -262,6 +295,43 @@ async function perform(page: Page, step: InteractionStep): Promise<boolean> {
   return false;
 }
 
+// App shells that fix the page height and scroll an inner container leave a full-page screenshot
+// at viewport size. Scroll the largest such container a viewport at a time so components further
+// down can still be cropped. Returns no shots when the document itself hides more than any container.
+const FIND_SCROLLER_SCRIPT = `(() => {
+  const root = document.scrollingElement;
+  const pageHidden = root ? root.scrollHeight - window.innerHeight : 0;
+  let best = null;
+  let bestArea = 0;
+  for (const element of document.querySelectorAll('*')) {
+    if (element.scrollHeight <= element.clientHeight + 1) continue;
+    if (!/(auto|scroll|overlay)/.test(getComputedStyle(element).overflowY)) continue;
+    const rect = element.getBoundingClientRect();
+    if (rect.width * rect.height > bestArea) { best = element; bestArea = rect.width * rect.height; }
+  }
+  // A page that scrolls more than any inner container is already covered by the full-page frame.
+  if (!best || best.scrollHeight - best.clientHeight <= pageHidden) return null;
+  globalThis.__rewindryScroller = best;
+  return { scrollHeight: best.scrollHeight, clientHeight: best.clientHeight };
+})()`;
+
+async function scrollShots(page: Page): Promise<RenderShot[]> {
+  const scroller = await page.evaluate(FIND_SCROLLER_SCRIPT) as { scrollHeight: number; clientHeight: number } | null;
+  if (!scroller) return [];
+  const step = Math.max(1, Math.floor(scroller.clientHeight * 0.9));
+  const end = scroller.scrollHeight - scroller.clientHeight;
+  const shots: RenderShot[] = [];
+  for (let top = step; shots.length < MAX_SCROLL_SHOTS; top += step) {
+    await page.evaluate(`globalThis.__rewindryScroller.scrollTop = ${Math.min(top, end)}`);
+    await page.evaluate(SETTLE_SCRIPT);
+    const map = await collectComponentMap(page).catch(() => ({ components: [] as ComponentInstance[] }));
+    shots.push({ png: await page.screenshot({ type: 'png', animations: 'disabled' }), components: map.components });
+    if (top >= end) break;
+  }
+  await page.evaluate('globalThis.__rewindryScroller.scrollTop = 0');
+  return shots;
+}
+
 export async function createFrameRenderer(): Promise<FrameRenderer> {
   const { chromium } = await import('playwright');
   const browser: Browser = await chromium.launch({ headless: true });
@@ -301,7 +371,7 @@ export async function createFrameRenderer(): Promise<FrameRenderer> {
         // Document coordinates at scroll 0 line up with the full-page image.
         const map = await collectComponentMap(page).catch(() => ({ components: [] as ComponentInstance[] }));
         const png = await page.screenshot({ type: 'png', fullPage: true, animations: 'disabled' });
-        return { status: 'captured', png, components: map.components };
+        return { status: 'captured', png, components: map.components, shots: await scrollShots(page) };
       } catch (error) {
         return { status: 'failed', reason: error instanceof Error ? error.message.slice(0, 400) : String(error).slice(0, 400) };
       } finally {

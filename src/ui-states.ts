@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isAbsolute, relative, sep } from 'node:path';
 import type { UiStateInput } from './store.ts';
 
 export const MAX_UI_STATES = 200;
@@ -56,12 +57,23 @@ export function componentSetHash(components: string[]): string {
   return createHash('sha256').update([...new Set(components)].sort().join('\n')).digest('hex');
 }
 
+// React 18 attributes components to absolute file paths. Keys are stored project-relative, like
+// React 19's URL paths; a file outside the project root cannot be attributed and yields null.
+export function projectRelativeKey(key: string, root: string): string | null {
+  const split = key.lastIndexOf('#');
+  const file = key.slice(0, split);
+  if (!/^(?:\/|[A-Za-z]:\/)/.test(file)) return key;
+  const path = relative(root, file);
+  if (!path || path.startsWith('..') || isAbsolute(path)) return null;
+  return `${path.split(sep).join('/')}${key.slice(split)}`;
+}
+
 // A page as loaded is one screen whatever it contains, so its history survives adding components.
 export const LANDING_SET = componentSetHash(['@landing']);
 
 // Strict allowlist: anything not shaped exactly like a recorder report is refused, so the
 // endpoint can never be used to store free-form page data.
-export function parseLearnedState(body: unknown): LearnedState {
+export function parseLearnedState(body: unknown, root?: string): LearnedState {
   if (!isRecord(body) || !exactKeys(body, ['route', 'path', 'components', 'modules'])) throw new Error('Invalid state report');
   if (typeof body.route !== 'string' || !ROUTE.test(body.route)) throw new Error('Invalid state route');
   if (!Array.isArray(body.path) || body.path.length > MAX_STEPS) throw new Error('Invalid state path');
@@ -70,7 +82,8 @@ export function parseLearnedState(body: unknown): LearnedState {
     throw new Error('Invalid state components');
   }
   if (!Array.isArray(body.modules) || !body.modules.every((module) => typeof module === 'string')) throw new Error('Invalid state modules');
-  const components = [...new Set(body.components as string[])].sort();
+  const keys = body.components as string[];
+  const components = [...new Set(root ? keys.map((key) => projectRelativeKey(key, root)).filter((key): key is string => !!key) : keys)].sort();
   return {
     origin: 'learned',
     route: body.route,

@@ -283,7 +283,7 @@ export function rewindryPreviewPlugin(appId: string, options: RewindryPreviewOpt
           if (refused) return;
           let learned;
           try {
-            learned = parseLearnedState(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+            learned = parseLearnedState(JSON.parse(Buffer.concat(chunks).toString('utf8')), root);
           } catch (error) {
             return respond(response, 400, 'text/plain; charset=utf-8', error instanceof Error ? error.message : 'Invalid state report');
           }

@@ -8,20 +8,32 @@ import { WelcomeModal } from './WelcomeModal.tsx';
 function App() {
   const params = new URLSearchParams(window.location.search);
   const screen = params.get('screen') ?? 'home';
+  const shell = params.get('shell') === '1';
   const [open, setOpen] = useState<number | null>(null);
   // Opt-in, like a first-visit modal: it covers the board until dismissed.
   const [welcome, setWelcome] = useState(params.get('welcome') === '1');
   if (screen === 'profile') return <main><Header screen="profile" /><h1>Profile</h1></main>;
-  return (
+  const page = (
     <main>
       <Header screen="home" />
       <h1>Board</h1>
       <label>Search <input name="search" /></label>
+      {/* Opt-in app-shell layout: the page height is fixed and the board sits far down an inner scroller. */}
+      {shell && <div style={{ height: 1200 }} />}
       <Board onOpen={setOpen} />
       {open !== null && <ItemDialog index={open} onClose={() => setOpen(null)} />}
       {welcome && <WelcomeModal onClose={() => setWelcome(false)} />}
     </main>
   );
+  if (!shell) return page;
+  return (
+    <div style={{ height: '100dvh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>{page}</div>
+    </div>
+  );
 }
+
+// App shells reset the body margin (as Tailwind's preflight does) so the 100dvh shell fits the viewport exactly.
+if (new URLSearchParams(window.location.search).get('shell') === '1') document.body.style.margin = '0';
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

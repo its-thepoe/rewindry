@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LANDING_SET, componentSetHash, parseLearnedState } from '../src/ui-states.ts';
+import { LANDING_SET, componentSetHash, parseLearnedState, projectRelativeKey } from '../src/ui-states.ts';
 
 const click = { action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }, { by: 'css', value: 'main > section > button:nth-of-type(2)', index: 0 }] };
 const report = (overrides: Record<string, unknown> = {}) => ({
@@ -41,4 +41,15 @@ test('reports carrying typed text, values or unknown fields are refused', () => 
   ];
   for (const [body, error] of refused) assert.throws(() => parseLearnedState(body), error, JSON.stringify(body));
   assert.throws(() => parseLearnedState(null), /Invalid state report/);
+});
+
+test('React 18 absolute component paths become project-relative, and files outside the project are dropped', () => {
+  assert.equal(projectRelativeKey('/work/app/src/Cell.tsx#Cell', '/work/app'), 'src/Cell.tsx#Cell');
+  assert.equal(projectRelativeKey('src/Cell.tsx#Cell', '/work/app'), 'src/Cell.tsx#Cell', 'React 19 keys are already relative');
+  assert.equal(projectRelativeKey('/work/other/Cell.tsx#Cell', '/work/app'), null);
+  assert.equal(projectRelativeKey('/work/app#Root', '/work/app'), null);
+  const state = parseLearnedState({ route: '/', path: [{ action: 'key', key: 'Escape' }],
+    components: ['/work/app/src/Cell.tsx#Cell', '/elsewhere/Lib.tsx#Lib', 'src/App.tsx#App'], modules: [] }, '/work/app');
+  assert.deepEqual(state.components, ['src/App.tsx#App', 'src/Cell.tsx#Cell']);
+  assert.equal(state.componentSet, componentSetHash(['src/App.tsx#App', 'src/Cell.tsx#Cell']));
 });

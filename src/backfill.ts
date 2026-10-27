@@ -228,17 +228,27 @@ function statusOf(record: PreviewRecord): 'captured' | 'partial' | 'unavailable'
   return captured === variants.length ? 'captured' : 'partial';
 }
 
+export type BackfillOptions = {
+  // Replay only the newest N checkpoints (still oldest first), so a long history can be bounded and timed.
+  last?: number;
+};
+
 export async function runBackfill(
   root: string,
   io: BackfillIo,
   services: BackfillServices = {},
+  options: BackfillOptions = {},
 ): Promise<BackfillSummary> {
+  if (options.last !== undefined && (!Number.isSafeInteger(options.last) || options.last < 1)) throw new Error('Backfill --last must be a positive whole number');
   const canonicalRoot = realpathSync(root);
   const store = new WorkspaceStore(canonicalRoot);
   store.initialize();
   const config = currentPreviewConfig(canonicalRoot);
   const appId = appIdFor(canonicalRoot, config);
-  const checkpoints = store.list();
+  const all = store.list();
+  const checkpoints = options.last === undefined ? all : all.slice(-options.last);
+  if (checkpoints.length < all.length) io.out(`Backfill: the newest ${checkpoints.length} of ${all.length} checkpoints.`);
+  const started = Date.now();
   const summary: BackfillSummary = {
     captured: 0, partial: 0, unavailable: 0,
     screens: { captured: 0, unchanged: 0, pathBroken: 0, failed: 0, skipped: 0, unavailable: 0 },
@@ -285,7 +295,7 @@ export async function runBackfill(
           if (captureUi) {
             try {
               const screens: UiCaptureSummary = await captureUi(canonicalRoot, store, checkpoint, {
-                previewUrl: replay.previewUrl, appId, route, profiles: config.preview?.profiles,
+                previewUrl: replay.previewUrl, appId, route, profiles: config.preview?.profiles, sourceRoot: temporaryRoot,
                 identityPath: BACKFILL_IDENTITY_PATH, sourceDigest: sourceStore.currentDigest, captureMode: 'replayed',
               });
               for (const key of ['captured', 'unchanged', 'pathBroken', 'failed', 'skipped'] as const) summary.screens[key] += screens[key];
@@ -316,6 +326,8 @@ export async function runBackfill(
     }
   }
   io.out(`Backfill complete: ${summary.captured} captured, ${summary.partial} partial, ${summary.unavailable} unavailable.`);
+  const seconds = (Date.now() - started) / 1000;
+  if (checkpoints.length) io.out(`Backfill time: ${seconds.toFixed(1)} s total, ${(seconds / checkpoints.length).toFixed(1)} s per checkpoint.`);
   if (captureUi) {
     const screens = summary.screens;
     io.out(`Screen history: ${screens.captured} captured, ${screens.unchanged} unchanged, ${screens.pathBroken} unreachable, ${screens.failed} failed, ${screens.skipped} skipped${screens.unavailable ? `, ${screens.unavailable} checkpoints unavailable` : ''}.`);

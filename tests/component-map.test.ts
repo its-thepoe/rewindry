@@ -75,6 +75,19 @@ test('skips JSX wrapper frames and credits library components to their own file'
   assert.deepEqual(map.components.map((item) => item.key), ['src/Themed.tsx#Themed', 'node_modules/.vite/deps/ui-kit.js#Tooltip']);
 });
 
+test('React 18 fibers fall back to _debugSource and keep the absolute path for the caller to relativize', () => {
+  const cell = component('Cell');
+  const board = component('Board');
+  Object.assign(cell, { _debugOwner: board, _debugSource: { fileName: '/work/app/src/Board.tsx', lineNumber: 4 } });
+  link(cell, { tag: 5, stateNode: host(0, 0, 10, 10), _debugOwner: cell, _debugSource: { fileName: '/work/app/src/Cell.tsx', lineNumber: 2 } } as Fiber);
+  const library = component('Portal');
+  link(library, { tag: 5, stateNode: host(0, 0, 10, 10), _debugOwner: library, _debugSource: { fileName: '/work/app/node_modules/ui/Portal.js' } } as Fiber);
+  link(board, { tag: 5, stateNode: host(0, 0, 40, 10), _debugOwner: board, _debugSource: { fileName: '/work/app/src/Board.tsx' } } as Fiber, cell);
+  const map = collect({ roots: [link({ tag: 3 }, board, library)], origin: ORIGIN, scrollX: 0, scrollY: 0 });
+  assert.deepEqual(map.components.map((item) => item.key), ['/work/app/src/Board.tsx#Board', '/work/app/src/Cell.tsx#Cell']);
+  assert.equal(map.unattributed, 1, 'node_modules sources are not attributed');
+});
+
 test('reports components it cannot attribute and pages without a React root', () => {
   const orphan = link(component('Provider'), { tag: 5, stateNode: host(0, 0, 10, 10) });
   const foreign = component('Foreign');

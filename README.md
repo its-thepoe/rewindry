@@ -73,7 +73,8 @@ Options in the `preview` object of `.rewindry/config.json`:
 | `profiles` | mobile 390×844 @2x, tablet 768×1024 @2x, desktop 1280×800 | Up to 6 breakpoints, each `{ "id", "label", "width", "height", "isMobile", "hasTouch", "deviceScaleFactor" }`. |
 
 **Limits:**
-- Component zoom needs a React development build. Other apps get screen-level history only.
+- Component zoom needs a React development build: React 19, or React 18 with the usual JSX dev transform (as `@vitejs/plugin-react` adds). Other apps get screen-level history only.
+- Apps that fix the page height and scroll an inner panel get one viewport-sized screenshot per screen. Rewindry scrolls that panel to crop components further down.
 - Screens that only appear on hover, or after typing, are not learned.
 - Replays use your local dev server and data, so live backend data, sign-in state, time and randomness can make pixels differ from what you saw.
 - Only Chromium rendering has been tested.
@@ -121,6 +122,8 @@ For a named component capture, your app must render that component on a determin
 - starts that checkpoint's saved Vite config on a private loopback port, reusing your project's currently installed `node_modules`. It never runs `npm install` or package scripts;
 - captures every configured `preview.targets` screen and viewport that the checkpoint does not already have;
 - replays your learned screens at every breakpoint against that checkpoint's own files, adding per-screen and per-component history for iterations that were never screenshotted.
+
+Add `--last N` to replay only the newest N checkpoints (still oldest first). The command prints the time taken in total and per checkpoint, which is useful for long histories.
 
 The flag is required because the command runs old project code. Without it, nothing is executed or written. Backfill never changes a checkpoint's source, digest, timestamp or Git history, never adds timeline points, and never replaces an existing image: a live `primary.png` stays byte-for-byte, and a replay only becomes `primary.png` when the checkpoint had none. Rerunning skips variants that already succeeded and retries ones that failed.
 

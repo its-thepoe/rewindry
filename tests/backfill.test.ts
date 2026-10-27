@@ -276,7 +276,10 @@ test('backfill replays learned screens against each checkpoint\'s saved files, l
     assert.deepEqual(calls.map((call) => call.checkpointId), [first.id, second.id]);
     // Each replay checks the temporary copy of that checkpoint, never the working tree.
     assert.deepEqual(calls.map((call) => call.digest), [first.digest, second.digest]);
-    assert.deepEqual(calls[0]!.options, {
+    // React 18 paths are made relative to the temporary copy the historical server serves.
+    const { sourceRoot, ...options } = calls[0]!.options;
+    assert.match(String(sourceRoot), new RegExp(`/\\.rewindry/tmp/${first.id}-`));
+    assert.deepEqual(options, {
       previewUrl: 'http://127.0.0.1:1/', appId: 'fixture', route: '/?welcome=1', profiles: [{ id: 'watch', width: 200, height: 240 }],
       identityPath: '/__rewindry/backfill-preview', sourceDigest: undefined, captureMode: 'replayed',
     });
@@ -284,6 +287,38 @@ test('backfill replays learned screens against each checkpoint\'s saved files, l
     assert.ok(output.includes(`Backfill ${second.id}: screens unavailable (Preview app identity mismatch)`));
     assert.ok(output.includes('Screen history: 4 captured, 1 unchanged, 1 unreachable, 0 failed, 0 skipped, 1 checkpoints unavailable.'));
     assert.deepEqual(readdirSync(join(root, '.rewindry', 'tmp')), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('backfill --last N replays only the newest N checkpoints, oldest first, and rejects bad values', async () => {
+  const { root, cleanup } = fixture();
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const ids = [store.snapshot('baseline')!.id];
+  for (const state of ['two', 'three', 'four']) {
+    writeFileSync(join(root, 'src', 'app.ts'), state);
+    ids.push(store.snapshot('agent_turn', `turn-${state}`)!.id);
+  }
+  const order: string[] = [];
+  const output: string[] = [];
+  try {
+    const summary = await runBackfill(root, { out: (line) => output.push(line), error: (line) => output.push(line) }, {
+      startPreview: async (_snapshotRoot, _appId, checkpointId) => { order.push(checkpointId); return { previewUrl: 'http://127.0.0.1:1/', close: async () => {} }; },
+      capture: async (_activeRoot, _sourceStore, checkpoint) => successfulRecord(checkpoint),
+    }, { last: 2 });
+    assert.deepEqual(order, ids.slice(-2));
+    assert.equal(summary.captured, 2);
+    assert.ok(output.includes('Backfill: the newest 2 of 4 checkpoints.'));
+    assert.ok(output.some((line) => /^Backfill time: \d+\.\d s total, \d+\.\d s per checkpoint\.$/.test(line)));
+    await assert.rejects(runBackfill(root, { out: () => {}, error: () => {} }, {}, { last: 0 }), /positive whole number/);
+    for (const value of ['0', '-1', '2.5', 'many']) {
+      const errors: string[] = [];
+      const code = await runCli(['backfill', '--run-historical-source', '--last', value, '--root', root], { out: () => {}, error: (line) => errors.push(line) });
+      assert.equal(code, 1, value);
+      assert.match(errors.join('\n'), /--last needs a whole number|Missing value for --last/, value);
+    }
   } finally {
     cleanup();
   }

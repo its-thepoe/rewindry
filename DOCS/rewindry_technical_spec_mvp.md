@@ -390,14 +390,14 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 - Learned states are capped at 200. The cap evicts the least recently seen learned state that has no frames; history is never deleted to make room.
 - Rewindry's own capture contexts set `__rewindryCapture`, so they never teach the recorder.
 
-**Attribution:** `component-collector.js` runs in the captured page. It walks React development fibers from each root and credits each component to the first stack frame after React's own `jsxDEV`/`createElement` (or JSX wrapper) frames in an owned fiber's `_debugStack`. It returns per-instance document boxes (including portal content) and occurrence indexes. Production builds contain none of this.
+**Attribution:** `component-collector.js` runs in the captured page. It walks React development fibers from each root and credits each component to the first stack frame after React's own `jsxDEV`/`createElement` (or JSX wrapper) frames in an owned fiber's `_debugStack` (React 19). On React 18 it uses the owned fiber's `_debugSource.fileName`, an absolute path that the capture and the learning endpoint make relative to the served root; files outside it are dropped. It returns per-instance document boxes (including portal content) and occurrence indexes. Production builds contain none of this.
 
 **Capture:**
 - After a checkpoint's legacy capture succeeds, the runtime queues per-screen capture, one browser at a time.
 - The landing route (seeded as a state, so it has history without any browser visit) comes first. Next come states whose components or loaded modules include a changed file, falling back to the most recently used states.
 - Default profiles are mobile 390×844 @2x touch, tablet 768×1024 @2x touch and desktop 1280×800 @1x (`preview.profiles`, at most 6). The budget is 36 frames per checkpoint, and touched states over budget are recorded as `skipped`.
 - Each frame uses a fresh capture-marked, loopback-only context. It replays the path step by step, falling back through locators; an unmatched step yields `path_broken`. The page then settles and scrolls to the top, the component map is collected, and a full-page PNG is taken.
-- Component crops are cut in device pixels.
+- Component crops are cut in device pixels. When the document does not scroll but an inner container hides more content than the page, the renderer scrolls that container a viewport at a time (up to 8 extra screenshots). Each component is cropped from the first screenshot that shows it whole, otherwise the one showing most of it. The frame itself stays the first viewport.
 - Frames and crops identical to the previous version for that state/profile (or component instance) are recorded as `unchanged`, pointing at the first identical version.
 - The run is published only if the source digest and preview server identity/generation are unchanged across it.
 - Visuals share the 256 MiB budget with legacy previews, with a 4 MiB limit per frame.
@@ -414,7 +414,7 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 
 ### Historical visual backfill
 
-- Trigger: only `rewindry backfill --run-historical-source`. Without the acknowledgement flag the command exits nonzero before any write. Setup, daemon start and Vite startup never run historical code.
+- Trigger: only `rewindry backfill --run-historical-source` (optionally `--last N` for the newest N checkpoints). Without the acknowledgement flag the command exits nonzero before any write. Setup, daemon start and Vite startup never run historical code.
 - Input: each checkpoint's files are read with `WorkspaceStore.readFile` and materialized under a unique `.rewindry/tmp/<checkpoint>-*` directory after path validation; the materialized digest must equal the checkpoint digest. Manifest/object corruption stops the run. The directory is removed in `finally`.
 - Execution: the checkpoint's own Vite config runs on `127.0.0.1` with an ephemeral port, an isolated cache dir, no proxy, and a symlink to the active project's installed `node_modules`. A dedicated identity endpoint (`/__rewindry/backfill-preview`) replaces the normal preview proof. No package-manager install or package script runs.
 - Capture: the current `preview.targets` catalogue is applied with the existing loopback-only, fresh-context, digest/generation-stability, 4 MiB per-image and 256 MiB total guards.

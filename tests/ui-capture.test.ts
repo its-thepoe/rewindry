@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { cropImage, decodePng, encodePng, type RgbaImage } from '../src/png.ts';
 import { WorkspaceStore, type UiState } from '../src/store.ts';
-import { captureUiHistory, changedFiles, normalizeProfiles, selectStates, type CaptureProfile, type FrameRenderer, type RenderResult } from '../src/ui-capture.ts';
+import { captureUiHistory, changedFiles, normalizeProfiles, pickCropSources, selectStates, type CaptureProfile, type FrameRenderer, type RenderResult } from '../src/ui-capture.ts';
 import { LANDING_SET, componentSetHash, type InteractionStep } from '../src/ui-states.ts';
 
 function solid(width: number, height: number, paint: (x: number, y: number) => [number, number, number]): RgbaImage {
@@ -186,6 +186,60 @@ test('per-screen capture keeps only real visual changes for screens and componen
     };
     await assert.rejects(captureUiHistory(root, store, raced, { ...options, renderer: racing }), /Source moved during capture/);
     assert.equal(store.listScreenFrames(landing.id).some((frame) => frame.checkpointId === raced.id), false);
+  } finally {
+    preview.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+const instance = (key: string, x: number, y: number, width: number, height: number, occurrence = 0) =>
+  ({ key, file: key.split('#')[0]!, component: key.split('#')[1]!, occurrence, box: { x, y, width, height } });
+
+test('crops come from the first screenshot that shows the whole component, else the one showing most of it', () => {
+  const image = { width: 100, height: 100 };
+  const picked = pickCropSources([
+    { image, components: [instance('a#Top', 0, 0, 50, 50), instance('a#Below', 0, 150, 50, 50), instance('a#Tall', 0, 60, 50, 200)] },
+    { image, components: [instance('a#Top', 0, -90, 50, 50), instance('a#Below', 0, 60, 50, 30), instance('a#Tall', 0, -30, 50, 200), instance('a#Late', 0, 10, 20, 20)] },
+  ], 1);
+  assert.deepEqual(picked.map((item) => [item.key, item.shot, item.box.y]), [
+    ['a#Top', 0, 0], ['a#Below', 1, 60], ['a#Tall', 1, -30], ['a#Late', 1, 10],
+  ]);
+  assert.deepEqual(pickCropSources([{ image, components: [instance('a#Gone', 0, 200, 10, 10)] }], 1), [], 'never visible: no crop');
+  assert.equal(pickCropSources([{ image, components: [instance('a#Hi', 10, 10, 30, 30)] }], 2)[0]!.shot, 0, 'device pixels are used for visibility');
+});
+
+test('inner-scroller shots and React 18 absolute paths feed crops with project-relative keys', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-ui-scroll-'));
+  const preview = await previewServer();
+  try {
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src', 'Board.tsx'), 'board');
+    const store = new WorkspaceStore(root);
+    store.initialize();
+    const checkpoint = store.snapshot('baseline')!;
+    const absolute = (file: string) => join(realpathSync(root), file);
+    // The frame is the viewport (10 px tall); the board sits 30 px down an inner scroller and only shows in the second shot.
+    const renderer: FrameRenderer = {
+      async render() {
+        const frame = encodePng(solid(20, 10, () => [255, 255, 255]));
+        const scrolled = encodePng(solid(20, 10, (x, y) => (y >= 2 && y < 8 && x < 10 ? [0, 120, 0] : [255, 255, 255])));
+        return {
+          status: 'captured', png: frame,
+          components: [instance(`${absolute('src/App.tsx')}#App`, 0, 0, 20, 10), instance(`${absolute('src/Board.tsx')}#Board`, 0, 30, 10, 6), instance('/outside/Lib.tsx#Lib', 0, 0, 5, 5)],
+          shots: [{ png: scrolled, components: [instance(`${absolute('src/App.tsx')}#App`, 0, -28, 20, 10), instance(`${absolute('src/Board.tsx')}#Board`, 0, 2, 10, 6)] }],
+        };
+      },
+      async close() {},
+    };
+    const summary = await captureUiHistory(root, store, checkpoint, { previewUrl: preview.url, appId: 'ui-test', profiles: [{ id: 'mobile', width: 20, height: 10 }], renderer });
+    assert.equal(summary.captured, 1);
+    const landing = store.listUiStates()[0]!;
+    assert.deepEqual(landing.components, ['src/App.tsx#App', 'src/Board.tsx#Board'], 'outside-project components are dropped');
+    const board = store.listComponentVersions('src/Board.tsx#Board');
+    assert.equal(board.length, 1);
+    assert.deepEqual(board[0]!.box, { x: 0, y: 2, width: 10, height: 6 }, 'box is recorded in the shot it was cropped from');
+    const crop = decodePng(store.readVisual(board[0]!.cropDigest));
+    assert.deepEqual([crop.width, crop.height, ...crop.data.subarray(0, 3)], [10, 6, 0, 120, 0]);
   } finally {
     preview.server.close();
     rmSync(root, { recursive: true, force: true });

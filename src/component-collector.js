@@ -42,8 +42,16 @@
     return null;
   };
 
-  // Each owned fiber's _debugStack points at the JSX call inside its owner's render,
-  // so the owner component's source file is the first app frame of that stack.
+  // React 18 records the JSX call site as _debugSource (an absolute file path from the JSX
+  // dev transform). It is returned as-is; the caller makes it project-relative.
+  const fileFromSource = (source) => {
+    const fileName = typeof source?.fileName === 'string' ? source.fileName.replace(/\\/g, '/') : '';
+    if (!fileName || fileName.includes('/node_modules/')) return null;
+    return fileName;
+  };
+
+  // Each owned fiber's _debugStack (React 19) or _debugSource (React 18) points at the JSX call
+  // inside its owner's render, so the owner component's source file is where that call lives.
   const ownerFiles = new Map();
   const ordered = [];
   const union = (a, b) => !a ? b : !b ? a : {
@@ -57,7 +65,7 @@
     for (let child = fiber.child; child; child = child.sibling) bounds = union(bounds, visit(child));
     const owner = fiber._debugOwner;
     if (owner && !ownerFiles.has(owner)) {
-      const file = fileFromStack(fiber._debugStack?.stack);
+      const file = fileFromStack(fiber._debugStack?.stack) ?? fileFromSource(fiber._debugSource);
       if (file) ownerFiles.set(owner, file);
     }
     if (HOST_TAGS.has(fiber.tag) && typeof fiber.stateNode?.getBoundingClientRect === 'function') {
