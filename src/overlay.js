@@ -16,6 +16,7 @@
         <label>Viewport<select class="viewport-select" aria-label="Viewport"></select></label>
       </div>
       <div class="visual"><img alt="" hidden><p class="missing" hidden>No visual was captured for this iteration.</p></div>
+      <p class="replay-note" hidden><strong>Replayed from saved source</strong> Omitted runtime inputs can change pixels.</p>
       <time class="time"></time>
     </section>
     <nav class="timeline" hidden aria-label="Rewindry iteration timeline" aria-keyshortcuts="Alt+Shift+R">
@@ -31,6 +32,7 @@
   const review = root.querySelector('.review');
   const image = root.querySelector('.visual img');
   const missing = root.querySelector('.missing');
+  const replayNote = root.querySelector('.replay-note');
   const time = root.querySelector('.time');
   const captureControls = root.querySelector('.capture-controls');
   const targetSelect = root.querySelector('.target-select');
@@ -48,6 +50,7 @@
   image.addEventListener('error', () => {
     image.hidden = true;
     missing.hidden = false;
+    replayNote.hidden = true;
   });
   let checkpoints = [];
   let selected = 0;
@@ -90,7 +93,7 @@
     select.disabled = options.length < 2;
   };
   const selectedVisual = (point) => {
-    if (!Array.isArray(point.targets)) return point.previewStatus === 'captured' ? { imageUrl: point.previewUrl, targetLabel: 'Recorded page' } : null;
+    if (!Array.isArray(point.targets)) return point.previewStatus === 'captured' ? { imageUrl: point.previewUrl, targetLabel: 'Recorded page', captureMode: point.previewCaptureMode } : null;
     return point.targets.find((target) => target.targetId === selectedTargetId && target.viewportId === selectedViewportId) ?? null;
   };
   const updateCaptureControls = (point) => {
@@ -139,6 +142,7 @@
       const imageUrl = capture?.status === 'captured' ? capture.imageUrl : capture?.imageUrl;
       image.hidden = !imageUrl;
       missing.hidden = Boolean(imageUrl);
+      replayNote.hidden = !imageUrl || capture?.captureMode !== 'replayed';
       if (imageUrl) image.src = imageUrl;
       else image.removeAttribute('src');
       if (!imageUrl && Array.isArray(point.targets)) {

@@ -215,3 +215,54 @@ test('authenticated viewer publishes named captures, keeps legacy records readab
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('viewer API labels replayed visuals and leaves live and legacy payloads unchanged', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-api-replay-'));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'app.ts'), 'live');
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const live = store.snapshot('baseline');
+  assert.ok(live);
+  writeFileSync(join(root, 'src', 'app.ts'), 'replayed');
+  const replayed = store.snapshot('unattributed_group');
+  assert.ok(replayed);
+  const target = (viewportId: string, imageFile: string, extra: Record<string, unknown> = {}) => ({
+    targetId: 'home', targetLabel: 'Home', viewportId, viewportLabel: viewportId, route: '/', viewport: { width: 1280, height: 800 },
+    isMobile: false, hasTouch: false, deviceScaleFactor: 1, status: 'captured', imageFile, ...extra,
+  });
+  const write = (id: string, targets: unknown[]) => {
+    const directory = join(root, '.rewindry', 'previews', id);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, 'primary.png'), `${id}-primary`);
+    writeFileSync(join(directory, 'home--mobile.png'), `${id}-mobile`);
+    writeFileSync(join(directory, 'primary.json'), JSON.stringify({
+      checkpointId: id, status: 'captured', sourceDigest: 'x', appId: 'fixture', route: '/', viewport: { width: 1280, height: 800 }, fidelityLimits: [], targets,
+    }));
+  };
+  write(live.id, [target('desktop', 'primary.png'), target('mobile', 'home--mobile.png', { captureMode: 'replayed', replayedAt: '2026-10-27T00:00:00.000Z' })]);
+  write(replayed.id, [target('desktop', 'primary.png', { captureMode: 'replayed', replayedAt: '2026-10-27T00:00:00.000Z' })]);
+  const viewer = new ViewerServer(root, store);
+  try {
+    const unlockUrl = await viewer.start();
+    const cookie = (await fetch(unlockUrl, { redirect: 'manual' })).headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie);
+    const body = await (await fetch(`${new URL(unlockUrl).origin}/api/checkpoints`, { headers: { Cookie: cookie } })).json() as {
+      checkpoints: Array<{ id: string; previewUrl?: string; previewCaptureMode?: string; targets: Array<{ viewportId: string; captureMode?: string; replayedAt?: string; imageUrl?: string }> }>;
+    };
+    const liveEntry = body.checkpoints.find((item) => item.id === live.id)!;
+    assert.ok(liveEntry.previewUrl);
+    assert.equal('previewCaptureMode' in liveEntry, false);
+    assert.equal(liveEntry.targets.find((item) => item.viewportId === 'desktop')?.captureMode, undefined);
+    const replayedSibling = liveEntry.targets.find((item) => item.viewportId === 'mobile')!;
+    assert.equal(replayedSibling.captureMode, 'replayed');
+    assert.equal(replayedSibling.replayedAt, '2026-10-27T00:00:00.000Z');
+    assert.ok(replayedSibling.imageUrl);
+    const replayedEntry = body.checkpoints.find((item) => item.id === replayed.id)!;
+    assert.equal(replayedEntry.previewCaptureMode, 'replayed');
+    assert.equal(replayedEntry.targets[0]?.captureMode, 'replayed');
+  } finally {
+    await viewer.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

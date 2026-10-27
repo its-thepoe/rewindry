@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WorkspaceStore } from './store.ts';
 import { safePreviewFile } from './preview-files.ts';
-import { captureCheckpoint, previewTargetRecords, type PreviewRecord } from './capture.ts';
+import { captureCheckpoint, previewTargetRecords, primaryReplayed, type PreviewRecord } from './capture.ts';
 
 const PREVIEW_PATH = '/__rewindry/preview';
 const ITERATIONS_PATH = '/__rewindry/iterations';
@@ -152,6 +152,7 @@ export function rewindryPreviewPlugin(appId: string) {
             let previewStatus = 'source_only';
             let targets: ReturnType<typeof previewTargetRecords> = [];
             let previewUrl: string | undefined;
+            let previewReplayed = false;
             if (recordPath) {
               try {
                 const record = JSON.parse(readFileSync(recordPath, 'utf8')) as PreviewRecord;
@@ -159,6 +160,7 @@ export function rewindryPreviewPlugin(appId: string) {
                 if (record.status === 'captured' && safePreviewFile(root, checkpoint.id, 'primary.png')) {
                   previewStatus = 'captured';
                   previewUrl = `${IMAGE_PREFIX}${checkpoint.id}.png`;
+                  previewReplayed = primaryReplayed(record);
                 }
               } catch { /* A partial record remains source-only until published. */ }
             }
@@ -168,6 +170,7 @@ export function rewindryPreviewPlugin(appId: string) {
               ...(checkpoint.overlap ? { overlap: true } : {}),
               previewStatus,
               ...(previewUrl ? { previewUrl } : {}),
+              ...(previewReplayed ? { previewCaptureMode: 'replayed' } : {}),
               targets: targets.map((target) => ({
                 ...target,
                 ...(target.status === 'captured' && VISUAL_ID.test(target.targetId) && VISUAL_ID.test(target.viewportId) && target.imageFile &&

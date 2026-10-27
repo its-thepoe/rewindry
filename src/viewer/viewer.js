@@ -10,6 +10,7 @@ const elements = {
   image: document.getElementById('visual-image'),
   liveFrame: document.getElementById('live-frame'),
   visualMessage: document.getElementById('visual-message'),
+  replayNote: document.getElementById('replay-note'),
   timeline: document.getElementById('timeline'),
   position: document.getElementById('timeline-position'),
   previous: document.getElementById('previous'),
@@ -105,7 +106,9 @@ function updateOptions(select, options, valueKey, labelKey, selected) {
 
 function selectedVisual(point) {
   if (!Array.isArray(point.targets)) {
-    return point.previewStatus === 'captured' ? { url: point.previewUrl, label: 'Recorded page' } : null;
+    return point.previewStatus === 'captured'
+      ? { url: point.previewUrl, label: 'Recorded page', captureMode: point.previewCaptureMode }
+      : null;
   }
   return point.targets.find((target) => target.targetId === state.selectedTargetId && target.viewportId === state.selectedViewportId) ?? null;
 }
@@ -144,6 +147,7 @@ function setVisual(point) {
   elements.liveFrame.hidden = true;
   elements.liveFrame.removeAttribute('src');
   elements.visualMessage.hidden = false;
+  elements.replayNote.hidden = true;
   if (!url) {
     elements.visualMessage.textContent = point.live
       ? 'Live preview is unavailable.'
@@ -172,9 +176,11 @@ function setVisual(point) {
   elements.image.onload = () => {
     elements.visualMessage.hidden = true;
     elements.image.hidden = false;
+    elements.replayNote.hidden = capture?.captureMode !== 'replayed';
   };
   elements.image.onerror = () => {
     elements.image.hidden = true;
+    elements.replayNote.hidden = true;
     elements.visualMessage.hidden = false;
     elements.visualMessage.textContent = `${capture?.targetLabel ?? 'Visual'} · ${capture?.viewportLabel ?? 'selected viewport'} could not be loaded. Historical code is still available.`;
   };

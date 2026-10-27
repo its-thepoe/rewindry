@@ -36,3 +36,6 @@ button:disabled { cursor: default; opacity: .38; }
 .peek-label { display: block; padding: 5px 3px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 @media (hover: hover) and (pointer: fine) { .trigger:hover { background: #26373c; opacity: 1; } .dot:not(.selected):hover::after { background: #9b9f9f; } }
 @media (prefers-reduced-motion: reduce) { .trigger, .dot, .dot::after { transition: none; } .dot.selected::before { animation: none; opacity: 0; } }
+.replay-note { position: absolute; z-index: 1; bottom: 70px; left: 50%; transform: translateX(-50%); width: max-content; max-width: min(360px, calc(100vw - 24px)); margin: 0; padding: 6px 9px; border: 1px solid #e3c98a; border-radius: 4px; background: #fdf6e3f2; color: #5a4512; font-size: 12px; line-height: 1.4; }
+.replay-note[hidden] { display: none; }
+.replay-note strong { display: block; font-weight: 700; }

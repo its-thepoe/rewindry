@@ -151,6 +151,24 @@ test('Vite preview publishes named target metadata and serves only registered sa
     const legacyEntry = legacyList.checkpoints.find((item) => item.id === legacy.id)!;
     assert.deepEqual([legacyEntry.targets[0]?.targetId, legacyEntry.targets[0]?.route], ['default', '/legacy']);
     assert.equal(legacyEntry.targets[0]?.imageUrl, `/__rewindry/image/${legacy.id}/default/desktop.png`);
+    assert.equal('previewCaptureMode' in legacyEntry, false);
+    assert.equal('previewCaptureMode' in legacyList.checkpoints.find((item) => item.id === checkpoint.id)!, false);
+
+    writeFileSync(join(root, 'src', 'app.ts'), 'replayed');
+    const replayed = store.snapshot('unattributed_group');
+    assert.ok(replayed);
+    const replayedDirectory = join(root, '.rewindry', 'previews', replayed.id);
+    mkdirSync(replayedDirectory, { recursive: true });
+    writeFileSync(join(replayedDirectory, 'primary.png'), 'replayed');
+    writeFileSync(join(replayedDirectory, 'primary.json'), JSON.stringify({
+      ...record, targets: [{ ...record.targets[0], captureMode: 'replayed', replayedAt: '2026-10-27T00:00:00.000Z' }],
+    }));
+    const replayList = JSON.parse(read('/__rewindry/iterations', '/').body) as { checkpoints: Array<{ id: string; previewCaptureMode?: string; targets: Array<{ captureMode?: string; replayedAt?: string; imageUrl?: string }> }> };
+    const replayEntry = replayList.checkpoints.find((item) => item.id === replayed.id)!;
+    assert.equal(replayEntry.previewCaptureMode, 'replayed');
+    assert.equal(replayEntry.targets[0]?.captureMode, 'replayed');
+    assert.equal(replayEntry.targets[0]?.replayedAt, '2026-10-27T00:00:00.000Z');
+    assert.equal(read('/__rewindry/image/', `/${replayed.id}/home/mobile.png`).body, 'replayed');
 
     symlinkSync(join(root, 'src', 'app.ts'), join(previewDirectory, 'home--symlink.png'));
     writeFileSync(join(previewDirectory, 'primary.json'), JSON.stringify({

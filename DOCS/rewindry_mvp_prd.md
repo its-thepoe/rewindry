@@ -172,7 +172,7 @@ Screen/component and viewport selectors change only the image displayed for the 
 
 1. Supported agent turn completes; Rewindry adds one final source checkpoint using its persistent worker.
 2. That dot is **Source only — no visual captured** because the app was not running.
-3. Starting `npm run dev` later does not retroactively pretend the current UI was the old UI; historical visual reconstruction remains out of scope for MVP.
+3. Starting `npm run dev` later does not retroactively pretend the current UI was the old UI. Historical visuals are only reconstructed by the explicit, acknowledged `rewindry backfill --run-historical-source` command, and every reconstructed image is labelled as replayed.
 
 ### D — Existing repository
 
@@ -273,7 +273,7 @@ A screenshot belongs to a **finalised agent/manual/Git checkpoint**, never a tra
 5. Save source digest, checkpoint ID, route, viewport, capture time, readiness and preview status. A source-only checkpoint remains a valid timeline item.
 6. Limit the screenshot worker to the **final state of each visible iteration**; optional internal file-write journals must not trigger extra captures. Do not block the developer's agent while screenshots are attempted.
 
-Identical source does not guarantee identical browser output: network responses, state, sessions, animations and external assets can differ. Prefer deterministic fixtures where possible. Rewindry supports up to 12 configured route/component and viewport combinations per checkpoint, with a root-page 1280×800 default; no framework component discovery, historical live execution, or retroactive screenshot backfills are promised.
+Identical source does not guarantee identical browser output: network responses, state, sessions, animations and external assets can differ. Prefer deterministic fixtures where possible. Rewindry supports up to 12 configured route/component and viewport combinations per checkpoint, with a root-page 1280×800 default; no framework component discovery is promised. An explicit `rewindry backfill --run-historical-source` command can replay each checkpoint's saved source in an isolated temporary directory to add missing configured variants; these images are labelled **Replayed from saved source**, never replace an existing image, and cannot recover exact original runtime pixels.
 
 ## 13. Git import, what it can and cannot do
 

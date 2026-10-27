@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright';
 import { RewindryRuntime } from '../../src/runtime.ts';
+import { WorkspaceStore } from '../../src/store.ts';
 import { captureCheckpoint } from '../../src/capture.ts';
 import type { Checkpoint } from '../../src/store.ts';
 import type { AgentEvent } from '../../src/turn-manager.ts';
@@ -365,6 +366,152 @@ test('live turns and one offline retry keep distinct historical screenshots', { 
   } finally {
     await viewer?.close();
     await runtime?.close();
+    devServer.kill('SIGTERM');
+    await new Promise<void>((done) => {
+      if (devServer.exitCode !== null) return done();
+      devServer.once('exit', () => done());
+    });
+    assert.equal(uninstallViteIntegration(root), true);
+    assert.equal(readFileSync(join(root, 'vite.config.ts'), 'utf8'), originalConfig);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('explicit backfill replays saved checkpoints into labeled historical visuals', { timeout: 120_000 }, async () => {
+  const example = resolve('examples/vite-react');
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-backfill-e2e-'));
+  const fixtureSource = readFileSync(join(example, 'src', 'main.tsx'), 'utf8');
+  assert.match(fixtureSource, /State A/);
+  mkdirSync(join(root, 'src'));
+  for (const name of ['index.html', 'package.json']) cpSync(join(example, name), join(root, name));
+  symlinkSync(join(example, 'node_modules'), join(root, 'node_modules'), 'dir');
+  const originalConfig = `import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\nexport default defineConfig({ plugins: [react()] });\n`;
+  writeFileSync(join(root, 'vite.config.ts'), originalConfig);
+  writeFileSync(join(root, 'src', 'main.tsx'), fixtureSource);
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  writeFileSync(join(root, '.rewindry', 'config.json'), JSON.stringify({
+    preview: {
+      appId: 'rewindry-backfille2e',
+      targets: [{ id: 'home', label: 'Home', route: '/', viewports: [
+        { id: 'mobile', label: 'Mobile', width: 390, height: 844, isMobile: true, hasTouch: true },
+        { id: 'desktop', label: 'Desktop', width: 1280, height: 800 },
+      ] }],
+    },
+  }));
+  const live = store.snapshot('baseline');
+  assert.ok(live);
+  writeFileSync(join(root, 'src', 'main.tsx'), fixtureSource.replaceAll('State A', 'State B'));
+  const unseen = store.snapshot('unattributed_group');
+  assert.ok(unseen);
+  writeFileSync(join(root, 'src', 'main.tsx'), 'export const broken = ;');
+  const broken = store.snapshot('unattributed_group');
+  assert.ok(broken);
+  writeFileSync(join(root, 'src', 'main.tsx'), fixtureSource.replaceAll('State A', 'Current work'));
+
+  const legacyPrimary = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+  const liveDirectory = join(root, '.rewindry', 'previews', live.id);
+  mkdirSync(liveDirectory, { recursive: true });
+  writeFileSync(join(liveDirectory, 'primary.png'), legacyPrimary);
+  writeFileSync(join(liveDirectory, 'primary.json'), JSON.stringify({
+    checkpointId: live.id, status: 'captured', sourceDigest: live.digest, appId: 'rewindry-backfille2e',
+    route: '/', viewport: { width: 1280, height: 800 }, fidelityLimits: [],
+  }));
+  const historyBefore = store.list().map(({ id, digest, createdAt }) => ({ id, digest, createdAt }));
+
+  const refused = spawn(process.execPath, [resolve('dist/cli.js'), 'backfill', '--root', root], { stdio: 'ignore' });
+  assert.equal(await new Promise<number | null>((done) => refused.once('exit', done)), 1);
+  assert.equal(existsSync(join(root, '.rewindry', 'previews', unseen.id)), false);
+
+  let output = '';
+  const backfill = spawn(process.execPath, [resolve('dist/cli.js'), 'backfill', '--run-historical-source', '--root', root], { stdio: ['ignore', 'pipe', 'pipe'] });
+  for (const stream of [backfill.stdout, backfill.stderr]) stream.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+  assert.equal(await new Promise<number | null>((done) => backfill.once('exit', done)), 0, output);
+  assert.match(output, /Backfill complete: 2 captured, 0 partial, 1 unavailable\./);
+
+  assert.deepEqual(store.list().map(({ id, digest, createdAt }) => ({ id, digest, createdAt })), historyBefore);
+  assert.deepEqual(readdirSync(join(root, '.rewindry', 'tmp')), []);
+  assert.match(readFileSync(join(root, 'src', 'main.tsx'), 'utf8'), /Current work/);
+  type Target = { targetId: string; viewportId: string; status: string; imageFile?: string; captureMode?: string; replayedAt?: string; reason?: string };
+  const recordOf = (id: string) => JSON.parse(readFileSync(join(root, '.rewindry', 'previews', id, 'primary.json'), 'utf8')) as { status: string; targets: Target[] };
+
+  const liveRecord = recordOf(live.id);
+  assert.deepEqual(readFileSync(join(liveDirectory, 'primary.png')), legacyPrimary);
+  assert.equal(liveRecord.targets.find((target) => target.targetId === 'default')?.captureMode, undefined);
+  const liveMobile = liveRecord.targets.find((target) => target.targetId === 'home' && target.viewportId === 'mobile');
+  assert.equal(liveMobile?.captureMode, 'replayed');
+  assert.match(liveMobile?.replayedAt ?? '', /^\d{4}-/);
+  assert.equal(liveMobile?.imageFile, 'home--mobile.png');
+  assert.deepEqual(pngDimensions(readFileSync(join(liveDirectory, 'home--mobile.png'))), { width: 390, height: 844 });
+
+  const unseenRecord = recordOf(unseen.id);
+  assert.equal(unseenRecord.status, 'captured');
+  const unseenMobile = unseenRecord.targets.find((target) => target.viewportId === 'mobile');
+  assert.equal(unseenMobile?.imageFile, 'primary.png');
+  assert.equal(unseenMobile?.captureMode, 'replayed');
+  const unseenImage = readFileSync(join(root, '.rewindry', 'previews', unseen.id, 'primary.png'));
+  assert.deepEqual(pngDimensions(unseenImage), { width: 390, height: 844 });
+  const digest = (image: Buffer) => createHash('sha256').update(image).digest('hex');
+  assert.notEqual(digest(readFileSync(join(liveDirectory, 'home--mobile.png'))), digest(unseenImage));
+
+  const brokenRecord = recordOf(broken.id);
+  assert.equal(brokenRecord.status, 'source_only');
+  assert.ok(brokenRecord.targets.every((target) => target.status === 'source_only' && target.reason));
+
+  assert.equal(installViteIntegration(root, resolve('.')), 'installed');
+  const vitePort = await port();
+  const previewUrl = `http://127.0.0.1:${vitePort}/`;
+  let viteOutput = '';
+  const devServer = spawn(process.execPath, [join(example, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', '127.0.0.1', '--port', String(vitePort), '--strictPort'],
+    { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  for (const stream of [devServer.stdout, devServer.stderr]) stream.on('data', (chunk: Buffer) => { viteOutput = `${viteOutput}${chunk.toString()}`.slice(-8_000); });
+  const viewer = new ViewerServer(root, store);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    await until(async () => (await fetch(`${previewUrl}__rewindry/preview`)).ok, Boolean, 'Vite preview', () => viteOutput);
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await page.goto(previewUrl, { waitUntil: 'networkidle' });
+    const overlay = page.locator('#rewindry-overlay-root');
+    await page.keyboard.press('Alt+Shift+r');
+    await until(() => overlay.locator('.dot').count(), (count) => count === 4, 'backfilled overlay dots');
+    const replayNote = overlay.locator('.replay-note');
+    await overlay.locator('.dot').nth(0).click();
+    const overlayTarget = overlay.getByLabel('Screen or component');
+    await overlayTarget.selectOption('default');
+    await until(() => overlay.locator('.visual img').evaluate((image: HTMLImageElement) => image.naturalWidth), (width) => width === 1, 'preserved live primary');
+    assert.equal(await replayNote.isHidden(), true);
+    await overlayTarget.selectOption('home');
+    await until(() => overlay.locator('.visual img').evaluate((image: HTMLImageElement) => image.naturalWidth), (width) => width === 390, 'replayed sibling variant');
+    assert.equal(await replayNote.isVisible(), true);
+    assert.match(await replayNote.textContent() ?? '', /Replayed from saved source/);
+    assert.equal(await replayNote.evaluate((note) => { const box = note.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; }), true);
+    await overlay.locator('.dot').nth(1).click();
+    await until(() => replayNote.isVisible(), Boolean, 'overlay replay label on replayed primary');
+    await overlay.locator('.dot').nth(2).click();
+    await until(() => overlay.locator('.missing').isVisible(), Boolean, 'failed replay stays source-only');
+    assert.equal(await replayNote.isHidden(), true);
+    assert.equal(await overlay.locator('.dot').nth(2).getAttribute('aria-current'), 'step');
+    await page.close();
+
+    const viewerPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await viewerPage.goto(await viewer.start(), { waitUntil: 'networkidle' });
+    await until(() => viewerPage.locator('#timeline .point-button').count(), (count) => count === 4, 'standalone backfilled points');
+    const standaloneNote = viewerPage.locator('#replay-note');
+    const standaloneTarget = viewerPage.getByLabel('Screen or component');
+    await viewerPage.locator('#timeline .point-button').nth(0).click();
+    await standaloneTarget.selectOption('default');
+    await until(() => viewerPage.locator('#visual-image').evaluate((image: HTMLImageElement) => image.naturalWidth), (width) => width === 1, 'standalone preserved primary');
+    assert.equal(await standaloneNote.isHidden(), true);
+    await standaloneTarget.selectOption('home');
+    await until(() => standaloneNote.isVisible(), Boolean, 'standalone replay label');
+    assert.match(await standaloneNote.textContent() ?? '', /Replayed from saved source/);
+    await viewerPage.locator('#timeline .point-button').nth(2).click();
+    await until(() => viewerPage.locator('#visual-message').textContent(), (message) => /not captured/.test(message ?? ''), 'standalone failed replay message');
+    assert.equal(await standaloneNote.isHidden(), true);
+    await viewerPage.close();
+  } finally {
+    await browser.close();
+    await viewer.close();
     devServer.kill('SIGTERM');
     await new Promise<void>((done) => {
       if (devServer.exitCode !== null) return done();

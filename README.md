@@ -67,7 +67,21 @@ By default, Rewindry captures the root page at 1280×800. To capture specific sc
 }
 ```
 
-For a component capture, your app must render that component on a deterministic local route/state and mark one DOM root with a stable CSS selector. Rewindry takes a screenshot of that matching element; it does not discover framework components or click controls to create app state. The standalone viewer and dev overlay let you choose **Screen/component** and **Viewport** while staying on the same iteration. Each selection applies only to future captures; old checkpoints keep their saved images and are not backfilled.
+For a component capture, your app must render that component on a deterministic local route/state and mark one DOM root with a stable CSS selector. Rewindry takes a screenshot of that matching element; it does not discover framework components or click controls to create app state. The standalone viewer and dev overlay let you choose **Screen/component** and **Viewport** while staying on the same iteration. New targets apply to future captures automatically; older checkpoints keep their saved images until you run an explicit backfill.
+
+### Backfilling older checkpoints
+
+> Not yet in the published npm package. Available from a source build as `node dist/cli.js backfill --run-historical-source`.
+
+`rewindry backfill --run-historical-source` adds missing visuals to checkpoints you already have. For each checkpoint, oldest first, it:
+
+- rebuilds that checkpoint's saved files in a temporary folder under `.rewindry/tmp/` (never in your working copy), then deletes the folder;
+- starts that checkpoint's saved Vite config on a private loopback port, reusing your project's currently installed `node_modules`. It never runs `npm install` or package scripts;
+- captures every configured `preview.targets` screen and viewport that the checkpoint does not already have.
+
+The flag is required because the command runs old project code. Without it, nothing is executed or written. Backfill never changes a checkpoint's source, digest, timestamp or Git history, never adds timeline points, and never replaces an existing image: a live `primary.png` stays byte-for-byte, and a replay only becomes `primary.png` when the checkpoint had none. Rerunning skips variants that already succeeded and retries ones that failed.
+
+Replayed images are labelled **Replayed from saved source** in both viewers. They are a best-effort re-render, not the original screen: files outside the saved source, dependencies that changed since, environment variables, network data and browser state can all change the pixels. A checkpoint whose saved source no longer builds stays source-only, with the failure reason shown.
 
 ## Commands
 

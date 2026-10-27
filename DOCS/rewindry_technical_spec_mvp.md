@@ -22,7 +22,7 @@
 | Frontend | React application using conventional Vite HTML entry | Frameworks with custom entry handling: standalone history viewer; no promise of overlay |
 | IDE/agent | Editor-neutral local file capture; boundary adapters tested separately for Cursor, Claude Code, Codex CLI | Unsupported editor, remote agent, unattached worktree: `Grouped edits`/not observed, not guaranteed one-per-prompt |
 | Storage | All **project-owned** data inside `<repo>/.rewindry/` | Only daemon binary, repo registrations, service logs and locks may live in user application-data directories |
-| Rendering | Up to 12 configured named route/component and viewport combinations per checkpoint; root page at 1280×800 when omitted | App supplies deterministic route/state and optional stable CSS selector; no framework discovery or historical backfill |
+| Rendering | Up to 12 configured named route/component and viewport combinations per checkpoint; root page at 1280×800 when omitted | App supplies deterministic route/state and optional stable CSS selector; no framework discovery. Historical variants only via explicit acknowledged backfill (§9 Historical visual backfill) |
 | Git | Index locally reachable commits read-only | Missing commit objects/shallow history must be disclosed; Git history cannot recover uncommitted pre-install prompts |
 
 **Important interpretation:** `one turn = one iteration` is only promised for agent editions where *outer-turn start, completion and workspace identity can actually be correlated*. A completion-only event is useful but cannot, by itself, prevent premature manual-idle checkpoint creation. Agent capability must be measured and shown per installed edition.
@@ -357,7 +357,7 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 4. Re-hash the eligible source tree immediately **before** capture. If different from `D`, record `source_changed` and mark the checkpoint visual unavailable; do not display the latest UI as the old checkpoint.
 5. For each combination, a fresh isolated browser context navigates to its same-origin local route, applies the named viewport/device-emulation settings, and captures the page viewport or exactly one match for its CSS selector. Do not click app controls or hit production services. The first successful variant is also stored as `primary.png` for old clients.
 6. Re-hash immediately **after** the image is taken; attach only if both hashes equal `D`, the dev preview belongs to the intended registered workspace and route, and no readiness error was observed. Persist as `.webp` or `.png` plus metadata. Otherwise discard image and record an explicit status.
-7. Handle rapid sequential turns with back-pressure. If current source has moved on, old source-only dots stay navigable; **do not execute earlier source or backfill missing images**.
+7. Handle rapid sequential turns with back-pressure. If current source has moved on, old source-only dots stay navigable; **automatic capture must not execute earlier source or backfill missing images** (only the explicit backfill command may).
 
 **Limits of verification:** Matching source digests does not guarantee the pixels are deterministic if the app uses remote APIs, local storage, date/time, random data or unseen environment files. The UI labels a capture `Recorded during development`, not a perfect deterministic reconstruction. Preview setup must support explicit local/test data assumptions.
 
@@ -371,7 +371,17 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 - A component selector must match exactly one DOM element on a deterministic local route/state that the app provides. Rewindry does not discover React/Vue/etc. components, click UI controls, or inject app code to create state.
 - Width/height are integer pixels from 1 through 4096; IDs use lowercase letters, numbers and hyphens; IDs are unique within target and viewport lists. Each image records its route, selector, viewport/device settings, status, reason and filename.
 - The viewer and overlay provide accessible screen/component and viewport selectors for the current iteration. Selection is preserved through navigation; an unavailable variant is named as missing and is never replaced silently by a different image. The timeline remains one dot per source checkpoint.
-- Historical preview records with only `route`, `viewport` and `primary.png` remain readable as one default page/Desktop variant. Existing checkpoints are immutable and are not retroactively captured.
+- Historical preview records with only `route`, `viewport` and `primary.png` remain readable as one default page/Desktop variant. Existing checkpoints are immutable and are not retroactively captured by normal operation.
+
+### Historical visual backfill
+
+- Trigger: only `rewindry backfill --run-historical-source`. Without the acknowledgement flag the command exits nonzero before any write. Setup, daemon start and Vite startup never run historical code.
+- Input: each checkpoint's files are read with `WorkspaceStore.readFile` and materialized under a unique `.rewindry/tmp/<checkpoint>-*` directory after path validation; the materialized digest must equal the checkpoint digest. Manifest/object corruption stops the run. The directory is removed in `finally`.
+- Execution: the checkpoint's own Vite config runs on `127.0.0.1` with an ephemeral port, an isolated cache dir, no proxy, and a symlink to the active project's installed `node_modules`. A dedicated identity endpoint (`/__rewindry/backfill-preview`) replaces the normal preview proof. No package-manager install or package script runs.
+- Capture: the current `preview.targets` catalogue is applied with the existing loopback-only, fresh-context, digest/generation-stability, 4 MiB per-image and 256 MiB total guards.
+- Publication: successful pairs are skipped; new or failed pairs are (re)attempted. Targets carry `captureMode: "replayed"` and `replayedAt`. An existing `primary.png` is never replaced; the first successful replay becomes `primary.png` only when none exists. Images and JSON are written atomically. Checkpoint manifests, digests, `createdAt` and Git refs are unchanged; no timeline entries are added.
+- API: both iteration APIs pass `captureMode`/`replayedAt` through on targets and add `previewCaptureMode: "replayed"` only when `primary.png` came from a replay, so live and legacy payloads are unchanged.
+- UI: both viewers show **Replayed from saved source** with a note that omitted runtime inputs can change pixels, only while a replayed image is displayed. Failed replays stay source-only with their reason.
 - Only `127.0.0.1`/localhost URLs in default setup; no production websites, accidental external DNS requests or automatic cloud upload.
 - Browser session uses no persisted authentication unless developer explicitly configures safe local test state.
 - Fixed timeout with retry budget; missing visual does not block the source checkpoint.

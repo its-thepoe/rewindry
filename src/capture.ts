@@ -295,6 +295,10 @@ export function previewTargetRecords(record: PreviewRecord): PreviewTargetRecord
   return Array.isArray(record.targets) ? record.targets : legacyTargets(record);
 }
 
+export function primaryReplayed(record: PreviewRecord): boolean {
+  return previewTargetRecords(record).some((target) => target.imageFile === 'primary.png' && target.captureMode === 'replayed');
+}
+
 export async function captureCheckpoint(
   root: string,
   store: WorkspaceStore,

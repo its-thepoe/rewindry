@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTwoFilesPatch } from 'diff';
 import type { Checkpoint, WorkspaceStore } from './store.ts';
-import { previewTargetRecords, type PreviewRecord } from './capture.ts';
+import { previewTargetRecords, primaryReplayed, type PreviewRecord } from './capture.ts';
 import { readGitHistory } from './git-history.ts';
 import { safePreviewFile } from './preview-files.ts';
 
@@ -108,7 +108,10 @@ export class ViewerServer {
             createdAt: checkpoint.createdAt,
             previewStatus: preview?.status ?? 'source_only',
             ...(preview?.status === 'captured' && safePreviewFile(this.root, checkpoint.id, 'primary.png')
-              ? { previewUrl: `/api/previews/${checkpoint.id}/primary.png` } : {}),
+              ? {
+                previewUrl: `/api/previews/${checkpoint.id}/primary.png`,
+                ...(primaryReplayed(preview) ? { previewCaptureMode: 'replayed' } : {}),
+              } : {}),
             targets: preview ? previewTargetRecords(preview).map((target) => ({
               ...target,
               ...(target.status === 'captured' && VISUAL_ID.test(target.targetId) && VISUAL_ID.test(target.viewportId) && target.imageFile &&
