@@ -12,6 +12,7 @@ import { WorkspaceStore } from './store.ts';
 import { ViewerServer } from './api.ts';
 import { installHookConfigs, uninstallHookConfigs } from './hooks.ts';
 import { installViteIntegration, uninstallViteIntegration } from './vite-install.ts';
+import { runBackfill } from './backfill.ts';
 
 type CliIo = { out: (line: string) => void; error: (line: string) => void };
 const defaultIo: CliIo = { out: console.log, error: console.error };
@@ -179,6 +180,14 @@ export async function runCli(args: string[], io: CliIo = defaultIo): Promise<num
     }
     const root = option(rest, '--root', process.cwd());
     const dataDir = option(rest, '--data-dir', userDataDir());
+    if (command === 'backfill') {
+      if (!rest.includes('--run-historical-source')) {
+        io.error('Backfill executes each checkpoint’s saved Vite config and application source in a temporary directory. Re-run with --run-historical-source to acknowledge historical code execution.');
+        return 1;
+      }
+      const summary = await runBackfill(root, io);
+      return summary.stopped ? 1 : 0;
+    }
     if (command === 'setup') {
       if (rest.includes('--dry-run')) {
         const plan = setupPlan(root, dataDir, rest.includes('--hooks'));
@@ -308,7 +317,7 @@ export async function runCli(args: string[], io: CliIo = defaultIo): Promise<num
       }
       return 0;
     }
-    io.error('Usage: rewindry <setup|serve|viewer|status|doctor|uninstall> [--dry-run] [--hooks] [--rebind-moved] [--root PATH] [--data-dir PATH]');
+    io.error('Usage: rewindry <setup|serve|viewer|backfill|status|doctor|uninstall> [--dry-run] [--hooks] [--rebind-moved] [--run-historical-source] [--root PATH] [--data-dir PATH]');
     return 2;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
