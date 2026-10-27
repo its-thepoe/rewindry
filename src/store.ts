@@ -18,6 +18,7 @@ import {
 import { DatabaseSync } from "node:sqlite";
 import { basename, dirname, isAbsolute, join, matchesGlob, relative, sep } from "node:path";
 import { migrateCheckpointFiles } from "./migration-002-checkpoint-files.ts";
+import { migrateUiHistory } from "./migration-003-ui-history.ts";
 
 export type CheckpointKind = "baseline" | "agent_turn" | "unattributed_group";
 export type CheckpointFile = { path: string; digest: string; size: number };
@@ -34,6 +35,31 @@ export type Checkpoint = {
   uncapturedInputClasses?: string[];
 };
 
+export type UiStateOrigin = "learned" | "configured";
+export type UiState = {
+  id: string;
+  origin: UiStateOrigin;
+  route: string;
+  path: unknown[];
+  componentSet: string;
+  modules: string[];
+  status: "active" | "path_broken";
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+export type UiStateInput = { origin: UiStateOrigin; route: string; path: unknown[]; componentSet: string; modules?: string[] };
+export type FrameStatus = "captured" | "unchanged" | "path_broken" | "skipped" | "failed";
+export type VisualBox = { x: number; y: number; width: number; height: number };
+export type ComponentVersionInput = {
+  componentKey: string; occurrence: number; cropDigest: string; unchangedFrom?: string; box: VisualBox;
+};
+export type ScreenFrameInput = {
+  checkpointId: string; stateId: string; profileId: string; status: FrameStatus; captureMode: "live" | "replayed";
+  imageDigest?: string; unchangedFrom?: string; reason?: string; components?: ComponentVersionInput[];
+};
+export type ScreenFrame = Omit<ScreenFrameInput, "components"> & { capturedAt: string };
+export type ComponentVersion = ComponentVersionInput & { checkpointId: string; stateId: string; profileId: string };
+
 type Manifest = Checkpoint & { schemaVersion: 1; includePolicyVersion: 1 };
 type CapturedFile = CheckpointFile & { bytes: Buffer };
 
@@ -48,6 +74,10 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
 const HEX_SHA256 = /^[a-f0-9]{64}$/;
 const CHECKPOINT_ID = /^[a-f0-9-]{36}$/;
+const PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
+const FRAME_STATUSES = ["captured", "unchanged", "path_broken", "skipped", "failed"];
+const MAX_STATE_PATH_BYTES = 64 * 1024;
+const MAX_STATE_MODULES = 2_000;
 const UNCAPTURED_INPUT_CLASSES = [
   "private or excluded files", "installed dependencies and build output",
   "browser and process state", "remote services",
@@ -145,7 +175,7 @@ export class WorkspaceStore {
     const db = new DatabaseSync(indexPath);
     db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;");
     const version = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 2) {
+    if (version.user_version > 3) {
       db.close();
       throw new Error(`Unsupported store schema version ${version.user_version}`);
     }
@@ -168,6 +198,7 @@ export class WorkspaceStore {
     try {
       if (version.user_version < 2) migrateCheckpointFiles(db, (id) =>
         this.readManifestAt(join(this.storage, "manifests", `${id}.json`), id).files);
+      if (version.user_version < 3) migrateUiHistory(db);
     } catch (error) {
       this.db = undefined;
       db.close();
@@ -317,6 +348,151 @@ export class WorkspaceStore {
 
   sourceBudgetBytes(): number {
     return this.maxSourceBytes;
+  }
+
+  upsertUiState(input: UiStateInput): UiState {
+    const db = this.database();
+    if (!["learned", "configured"].includes(input.origin)) throw new Error("Invalid UI state origin");
+    if (typeof input.route !== "string" || !input.route.startsWith("/") || input.route.length > 2_048) {
+      throw new Error("Invalid UI state route");
+    }
+    if (!HEX_SHA256.test(input.componentSet)) throw new Error("Invalid UI state component set");
+    const pathJson = JSON.stringify(input.path);
+    if (!Array.isArray(input.path) || Buffer.byteLength(pathJson) > MAX_STATE_PATH_BYTES) throw new Error("Invalid UI state path");
+    const modules = input.modules ?? [];
+    if (!Array.isArray(modules) || modules.length > MAX_STATE_MODULES ||
+        !modules.every((module) => typeof module === "string" && this.validRelativePath(module))) {
+      throw new Error("Invalid UI state modules");
+    }
+    const now = new Date().toISOString();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = db.prepare("SELECT id, path_json, status FROM ui_states WHERE route = ? AND component_set = ?")
+        .get(input.route, input.componentSet) as { id: string; path_json: string; status: string } | undefined;
+      if (existing) {
+        // Keep the shortest working path; any working path repairs a broken one.
+        const replacePath = existing.status === "path_broken" ||
+          input.path.length < (JSON.parse(existing.path_json) as unknown[]).length;
+        db.prepare(`UPDATE ui_states SET path_json = ?, modules_json = ?, status = 'active', last_seen_at = ? WHERE id = ?`)
+          .run(replacePath ? pathJson : existing.path_json, JSON.stringify(modules), now, existing.id);
+      } else {
+        db.prepare(`INSERT INTO ui_states (id, origin, route, path_json, component_set, modules_json, status, first_seen_at, last_seen_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)`)
+          .run(randomUUID(), input.origin, input.route, pathJson, input.componentSet, JSON.stringify(modules), now, now);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.listUiStates().find((state) => state.route === input.route && state.componentSet === input.componentSet)!;
+  }
+
+  listUiStates(): UiState[] {
+    const rows = this.database().prepare("SELECT * FROM ui_states ORDER BY last_seen_at DESC, id").all() as Record<string, string>[];
+    return rows.map((row) => ({
+      id: row.id!, origin: row.origin as UiStateOrigin, route: row.route!,
+      path: JSON.parse(row.path_json!) as unknown[], componentSet: row.component_set!,
+      modules: JSON.parse(row.modules_json!) as string[], status: row.status as UiState["status"],
+      firstSeenAt: row.first_seen_at!, lastSeenAt: row.last_seen_at!,
+    }));
+  }
+
+  markUiStatePathBroken(id: string): void {
+    const result = this.database().prepare("UPDATE ui_states SET status = 'path_broken' WHERE id = ?").run(id);
+    if (!result.changes) throw new Error("UI state not found");
+  }
+
+  recordScreenFrame(input: ScreenFrameInput): void {
+    const db = this.database();
+    if (!CHECKPOINT_ID.test(input.checkpointId) || !PROFILE_ID.test(input.profileId) ||
+        !FRAME_STATUSES.includes(input.status) || !["live", "replayed"].includes(input.captureMode) ||
+        (input.imageDigest !== undefined && !HEX_SHA256.test(input.imageDigest)) ||
+        (input.unchangedFrom !== undefined && !CHECKPOINT_ID.test(input.unchangedFrom))) {
+      throw new Error("Invalid screen frame");
+    }
+    const components = input.components ?? [];
+    if (components.length && !["captured", "unchanged"].includes(input.status)) throw new Error("Components need a captured frame");
+    for (const component of components) {
+      const box = component.box;
+      if (typeof component.componentKey !== "string" || !component.componentKey || component.componentKey.length > 512 ||
+          !Number.isSafeInteger(component.occurrence) || component.occurrence < 0 || !HEX_SHA256.test(component.cropDigest) ||
+          (component.unchangedFrom !== undefined && !CHECKPOINT_ID.test(component.unchangedFrom)) ||
+          ![box?.x, box?.y, box?.width, box?.height].every((value) => Number.isFinite(value)) || box.width <= 0 || box.height <= 0) {
+        throw new Error("Invalid component version");
+      }
+    }
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(`INSERT INTO screen_frames (checkpoint_id, state_id, profile_id, status, image_digest, unchanged_from, capture_mode, reason, captured_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.checkpointId, input.stateId, input.profileId, input.status,
+        input.imageDigest ?? null, input.unchangedFrom ?? null, input.captureMode, input.reason?.slice(0, 512) ?? null,
+        new Date().toISOString());
+      const insert = db.prepare(`INSERT INTO component_versions
+        (checkpoint_id, state_id, profile_id, component_key, occurrence, crop_digest, unchanged_from, box_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const component of components) {
+        const { x, y, width, height } = component.box;
+        insert.run(input.checkpointId, input.stateId, input.profileId, component.componentKey, component.occurrence,
+          component.cropDigest, component.unchangedFrom ?? null, JSON.stringify({ x, y, width, height }));
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listScreenFrames(stateId: string, profileId?: string): ScreenFrame[] {
+    const rows = this.database().prepare(`
+      SELECT screen_frames.* FROM screen_frames JOIN checkpoints ON checkpoints.id = screen_frames.checkpoint_id
+      WHERE state_id = ? AND (? IS NULL OR profile_id = ?) ORDER BY checkpoints.created_at, checkpoints.rowid, profile_id
+    `).all(stateId, profileId ?? null, profileId ?? null) as Record<string, string | null>[];
+    return rows.map((row) => ({
+      checkpointId: row.checkpoint_id!, stateId: row.state_id!, profileId: row.profile_id!, status: row.status as FrameStatus,
+      captureMode: row.capture_mode as ScreenFrame["captureMode"], capturedAt: row.captured_at!,
+      ...(row.image_digest ? { imageDigest: row.image_digest } : {}),
+      ...(row.unchanged_from ? { unchangedFrom: row.unchanged_from } : {}),
+      ...(row.reason ? { reason: row.reason } : {}),
+    }));
+  }
+
+  listComponentVersions(componentKey: string, profileId?: string): ComponentVersion[] {
+    const rows = this.database().prepare(`
+      SELECT component_versions.* FROM component_versions JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
+      WHERE component_key = ? AND (? IS NULL OR profile_id = ?)
+      ORDER BY checkpoints.created_at, checkpoints.rowid, state_id, profile_id, occurrence
+    `).all(componentKey, profileId ?? null, profileId ?? null) as Record<string, string | number | null>[];
+    return rows.map((row) => ({
+      checkpointId: row.checkpoint_id as string, stateId: row.state_id as string, profileId: row.profile_id as string,
+      componentKey: row.component_key as string, occurrence: row.occurrence as number, cropDigest: row.crop_digest as string,
+      box: JSON.parse(row.box_json as string) as VisualBox,
+      ...(row.unchanged_from ? { unchangedFrom: row.unchanged_from as string } : {}),
+    }));
+  }
+
+  writeVisual(bytes: Buffer): string {
+    const digest = sha256(bytes);
+    const path = this.visualPath(digest);
+    if (!existsSync(path)) atomicWrite(path, bytes);
+    this.readVisual(digest);
+    return digest;
+  }
+
+  readVisual(digest: string): Buffer {
+    const path = this.visualPath(digest);
+    if (!existsSync(path) || !lstatSync(path).isFile()) throw new Error("Visual unavailable");
+    const bytes = readFileSync(path);
+    if (sha256(bytes) !== digest) throw new Error("Visual corrupt");
+    return bytes;
+  }
+
+  private visualPath(digest: string): string {
+    this.database();
+    if (!HEX_SHA256.test(digest)) throw new Error("Invalid visual digest");
+    const directory = join(this.storage, "visuals");
+    if (existsSync(directory) && lstatSync(directory).isSymbolicLink()) throw new Error("Visual directory is a symlink");
+    return join(directory, `${digest}.png`);
   }
 
   private database(): DatabaseSync {

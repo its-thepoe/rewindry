@@ -244,7 +244,8 @@ test("version 2 migration backfills the path index from existing manifests", () 
     assert.ok(second);
 
     db = new DatabaseSync(join(root, ".rewindry", "index.sqlite"));
-    db.exec("DROP TABLE checkpoint_files; PRAGMA user_version = 1;");
+    // A real version 1 store predates both the path index and the version 3 UI history tables.
+    db.exec("DROP TABLE checkpoint_files; DROP TABLE component_versions; DROP TABLE screen_frames; DROP TABLE ui_states; PRAGMA user_version = 1;");
     db.close();
     db = undefined;
     const migrated = new WorkspaceStore(root);
@@ -256,6 +257,7 @@ test("version 2 migration backfills the path index from existing manifests", () 
     assert.throws(() => migrated.listPathHistory("../outside"), /Invalid checkpoint path/);
     migrated.initialize();
     assert.deepEqual(migrated.listPathHistory("src/app.ts"), [first.id, second.id]);
+    assert.deepEqual(schemaOf(root), { version: 3, tables: UI_TABLES });
   } finally {
     db?.close();
     cleanup();
@@ -308,5 +310,161 @@ test("process death after writing objects but before publication keeps history c
     const recovered = restarted.snapshot("agent_turn", "after-kill");
     assert.ok(recovered);
     assert.equal(restarted.readFile(recovered.id, "src/app.ts").toString(), "after");
+  } finally { cleanup(); }
+});
+
+const UI_TABLES = ["component_versions", "screen_frames", "ui_states"];
+const schemaOf = (root: string) => {
+  const db = new DatabaseSync(join(root, ".rewindry", "index.sqlite"));
+  try {
+    const version = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('ui_states', 'screen_frames', 'component_versions') ORDER BY name")
+      .all() as { name: string }[]).map((row) => row.name);
+    return { version, tables };
+  } finally { db.close(); }
+};
+const downgradeToV2 = (root: string, extraSql = "") => {
+  const db = new DatabaseSync(join(root, ".rewindry", "index.sqlite"));
+  db.exec(`DROP TABLE component_versions; DROP TABLE screen_frames; DROP TABLE ui_states; ${extraSql} PRAGMA user_version = 2;`);
+  db.close();
+};
+const hex = (value: string) => createHash("sha256").update(value).digest("hex");
+
+test("fresh stores start at schema version 3 with UI history tables", () => {
+  const { root, cleanup } = fixture();
+  try {
+    assert.deepEqual(schemaOf(root), { version: 3, tables: UI_TABLES });
+  } finally { cleanup(); }
+});
+
+test("version 3 migration upgrades a version 2 store without touching history and reruns as a no-op", () => {
+  const { root, store, cleanup } = fixture();
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "app.ts"), "one");
+    const first = store.snapshot("baseline");
+    writeFileSync(join(root, "src", "app.ts"), "two");
+    const second = store.snapshot("agent_turn", "turn-1");
+    assert.ok(first && second);
+    const before = store.list();
+    downgradeToV2(root);
+    assert.deepEqual(schemaOf(root), { version: 2, tables: [] });
+
+    const migrated = new WorkspaceStore(root);
+    migrated.initialize();
+    assert.deepEqual(schemaOf(root), { version: 3, tables: UI_TABLES });
+    assert.deepEqual(migrated.list(), before);
+    assert.deepEqual(migrated.listPathHistory("src/app.ts"), [first.id, second.id]);
+    assert.equal(migrated.readFile(first.id, "src/app.ts").toString(), "one");
+
+    const state = migrated.upsertUiState({ origin: "learned", route: "/", path: [], componentSet: hex("home") });
+    migrated.initialize();
+    assert.deepEqual(schemaOf(root), { version: 3, tables: UI_TABLES });
+    assert.deepEqual(migrated.listUiStates(), [state]);
+  } finally { cleanup(); }
+});
+
+test("a failed version 3 migration rolls back to an intact version 2 store", () => {
+  const { root, store, cleanup } = fixture();
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "app.ts"), "one");
+    const baseline = store.snapshot("baseline");
+    assert.ok(baseline);
+    // A same-named leftover table makes the migration fail after its first statements ran.
+    downgradeToV2(root, "CREATE TABLE component_versions (unexpected TEXT);");
+
+    assert.throws(() => new WorkspaceStore(root).initialize(), /already exists/);
+    const db = new DatabaseSync(join(root, ".rewindry", "index.sqlite"));
+    try {
+      assert.equal((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 2);
+      assert.deepEqual((db.prepare("SELECT name FROM sqlite_master WHERE name IN ('ui_states', 'screen_frames', 'ui_states_last_seen')").all()), []);
+      assert.deepEqual(db.prepare("PRAGMA table_info(component_versions)").all().map((column) => (column as { name: string }).name), ["unexpected"]);
+      db.exec("DROP TABLE component_versions;");
+    } finally { db.close(); }
+
+    const recovered = new WorkspaceStore(root);
+    recovered.initialize();
+    assert.deepEqual(schemaOf(root), { version: 3, tables: UI_TABLES });
+    assert.equal(recovered.readFile(baseline.id, "src/app.ts").toString(), "one");
+  } finally { cleanup(); }
+});
+
+test("stores newer than version 3 are refused", () => {
+  const { root, cleanup } = fixture();
+  try {
+    const db = new DatabaseSync(join(root, ".rewindry", "index.sqlite"));
+    db.exec("PRAGMA user_version = 4;");
+    db.close();
+    assert.throws(() => new WorkspaceStore(root).initialize(), /Unsupported store schema version 4/);
+  } finally { cleanup(); }
+});
+
+test("UI states merge by route and visible components, and frames record component versions", () => {
+  const { root, store, cleanup } = fixture();
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "app.ts"), "one");
+    const first = store.snapshot("baseline");
+    writeFileSync(join(root, "src", "app.ts"), "two");
+    const second = store.snapshot("unattributed_group");
+    assert.ok(first && second);
+
+    const dialogSet = hex("App|Board|ItemDialog");
+    const long = [{ click: "Close welcome" }, { click: "Item 2" }, { click: "Item 3" }];
+    const state = store.upsertUiState({ origin: "learned", route: "/", path: long, componentSet: dialogSet, modules: ["src/ItemDialog.tsx"] });
+    assert.equal(store.upsertUiState({ origin: "learned", route: "/", path: [...long, { key: "Escape" }], componentSet: dialogSet }).path.length, 3);
+    assert.equal(store.upsertUiState({ origin: "learned", route: "/", path: long.slice(1), componentSet: dialogSet }).path.length, 2);
+    store.markUiStatePathBroken(state.id);
+    assert.equal(store.listUiStates()[0]!.status, "path_broken");
+    const repaired = store.upsertUiState({ origin: "learned", route: "/", path: [...long, { key: "Escape" }], componentSet: dialogSet });
+    assert.deepEqual([repaired.id, repaired.status, repaired.path.length], [state.id, "active", 4]);
+    assert.equal(store.listUiStates().length, 1);
+
+    const image = Buffer.from("png-bytes");
+    const crop = Buffer.from("crop-bytes");
+    const imageDigest = store.writeVisual(image);
+    const cropDigest = store.writeVisual(crop);
+    assert.deepEqual(store.readVisual(imageDigest), image);
+    const box = { x: 40, y: 120, width: 240, height: 100 };
+    store.recordScreenFrame({
+      checkpointId: first.id, stateId: state.id, profileId: "mobile", status: "captured", captureMode: "live", imageDigest,
+      components: [{ componentKey: "src/ItemDialog.tsx#ItemDialog", occurrence: 0, cropDigest, box }],
+    });
+    store.recordScreenFrame({
+      checkpointId: second.id, stateId: state.id, profileId: "mobile", status: "unchanged", captureMode: "live", imageDigest,
+      unchangedFrom: first.id,
+      components: [{ componentKey: "src/ItemDialog.tsx#ItemDialog", occurrence: 0, cropDigest, unchangedFrom: first.id, box }],
+    });
+    store.recordScreenFrame({ checkpointId: second.id, stateId: state.id, profileId: "desktop", status: "path_broken", captureMode: "live", reason: "Item 2 not found" });
+
+    assert.deepEqual(store.listScreenFrames(state.id, "mobile").map((frame) => [frame.checkpointId, frame.status, frame.unchangedFrom]),
+      [[first.id, "captured", undefined], [second.id, "unchanged", first.id]]);
+    assert.equal(store.listScreenFrames(state.id).length, 3);
+    assert.deepEqual(store.listComponentVersions("src/ItemDialog.tsx#ItemDialog", "mobile").map((version) => [version.checkpointId, version.box]),
+      [[first.id, box], [second.id, box]]);
+    assert.deepEqual(store.listComponentVersions("src/ItemDialog.tsx#ItemDialog", "desktop"), []);
+
+    // Constraints: a frame is unique per checkpoint/state/profile, statuses must agree with digests, references must exist.
+    const frame = { checkpointId: first.id, stateId: state.id, profileId: "tablet", captureMode: "live" as const };
+    assert.throws(() => store.recordScreenFrame({ ...frame, status: "captured" }), /CHECK constraint/);
+    assert.throws(() => store.recordScreenFrame({ ...frame, status: "unchanged", imageDigest }), /CHECK constraint/);
+    assert.throws(() => store.recordScreenFrame({ ...frame, stateId: "missing", status: "skipped" }), /FOREIGN KEY/);
+    assert.throws(() => store.recordScreenFrame({ ...frame, profileId: "Mobile!", status: "skipped" }), /Invalid screen frame/);
+    assert.throws(() => store.recordScreenFrame({ ...frame, status: "failed", components: [{ componentKey: "a#B", occurrence: 0, cropDigest, box }] }), /captured frame/);
+    assert.throws(() => store.recordScreenFrame({ ...frame, status: "captured", imageDigest, components: [{ componentKey: "a#B", occurrence: 0, cropDigest, box: { ...box, width: 0 } }] }), /Invalid component version/);
+    assert.throws(() => store.recordScreenFrame({ ...frame, status: "captured", imageDigest, components: [
+      { componentKey: "a#B", occurrence: 0, cropDigest, box }, { componentKey: "a#B", occurrence: 0, cropDigest, box },
+    ] }), /UNIQUE constraint/);
+    assert.equal(store.listScreenFrames(state.id, "tablet").length, 0, "a failed frame write leaves no partial rows");
+
+    assert.throws(() => store.upsertUiState({ origin: "learned", route: "relative", path: [], componentSet: dialogSet }), /route/);
+    assert.throws(() => store.upsertUiState({ origin: "learned", route: "/", path: [], componentSet: "short" }), /component set/);
+    assert.throws(() => store.upsertUiState({ origin: "learned", route: "/", path: [], componentSet: dialogSet, modules: ["../escape"] }), /modules/);
+    assert.throws(() => store.upsertUiState({ origin: "learned", route: "/", path: ["x".repeat(70_000)], componentSet: dialogSet }), /path/);
+
+    writeFileSync(join(root, ".rewindry", "visuals", `${cropDigest}.png`), "tampered");
+    assert.throws(() => store.readVisual(cropDigest), /Visual corrupt/);
+    assert.throws(() => store.readVisual("../index"), /Invalid visual digest/);
   } finally { cleanup(); }
 });

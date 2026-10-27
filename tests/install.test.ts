@@ -248,7 +248,8 @@ test('explicit moved-workspace rebind preserves version 1 history and rejects im
     const options = { dataDir, launchAgentsDir, sourceCli, service, platform: 'darwin' as const, verifyStart: false };
     await installWorkspace(root, options);
     db = new DatabaseSync(join(root, '.rewindry', 'index.sqlite'));
-    db.exec('DROP TABLE checkpoint_files; PRAGMA user_version = 1;');
+    // A real version 1 store predates both the path index and the version 3 UI history tables.
+    db.exec('DROP TABLE checkpoint_files; DROP TABLE component_versions; DROP TABLE screen_frames; DROP TABLE ui_states; PRAGMA user_version = 1;');
     db.close();
     db = undefined;
     assert.equal(existsSync(moved), false);
