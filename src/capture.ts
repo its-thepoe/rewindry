@@ -93,7 +93,7 @@ function previewDirectory(path: string): void {
   if (!lstatSync(path).isDirectory()) throw new Error('Preview path is not a regular directory');
 }
 
-function previewUsage(path: string): number {
+export function previewUsage(path: string): number {
   let bytes = 0;
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -107,14 +107,14 @@ function previewUsage(path: string): number {
   return bytes;
 }
 
-function localPreview(url: string): URL {
+export function localPreview(url: string): URL {
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname) ||
       parsed.username || parsed.password) throw new Error('Preview must be a local HTTP URL');
   return parsed;
 }
 
-async function identity(base: URL, identityPath = '/__rewindry/preview'): Promise<PreviewIdentity> {
+export async function identity(base: URL, identityPath = '/__rewindry/preview'): Promise<PreviewIdentity> {
   const endpoint = new URL(identityPath, base);
   const response = await fetch(endpoint, { signal: AbortSignal.timeout(3_000), redirect: 'error' });
   if (!response.ok) throw new Error(`Preview identity HTTP ${response.status}`);

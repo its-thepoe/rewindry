@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { componentSetHash, parseLearnedState } from '../src/ui-states.ts';
+import { LANDING_SET, componentSetHash, parseLearnedState } from '../src/ui-states.ts';
 
 const click = { action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }, { by: 'css', value: 'main > section > button:nth-of-type(2)', index: 0 }] };
 const report = (overrides: Record<string, unknown> = {}) => ({
@@ -17,6 +17,11 @@ test('a recorder report becomes a learned state keyed by its visible component s
   const select = { action: 'select', target: [{ by: 'testid', value: 'size', index: 0 }], option: { index: 2 } };
   assert.deepEqual(parseLearnedState(report({ path: [select] })).path, [select]);
   assert.equal(parseLearnedState(report({ components: [] })).componentSet, componentSetHash([]));
+  // A page as loaded keeps one identity per URL however its components change.
+  const landing = parseLearnedState(report({ path: [] }));
+  assert.equal(landing.componentSet, LANDING_SET);
+  assert.equal(parseLearnedState(report({ path: [], components: ['src/New.tsx#New'] })).componentSet, LANDING_SET);
+  assert.deepEqual(landing.components, ['src/App.tsx#App', 'src/Cell.tsx#Cell']);
 });
 
 test('reports carrying typed text, values or unknown fields are refused', () => {

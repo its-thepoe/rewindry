@@ -56,6 +56,9 @@ export function componentSetHash(components: string[]): string {
   return createHash('sha256').update([...new Set(components)].sort().join('\n')).digest('hex');
 }
 
+// A page as loaded is one screen whatever it contains, so its history survives adding components.
+export const LANDING_SET = componentSetHash(['@landing']);
+
 // Strict allowlist: anything not shaped exactly like a recorder report is refused, so the
 // endpoint can never be used to store free-form page data.
 export function parseLearnedState(body: unknown): LearnedState {
@@ -73,7 +76,7 @@ export function parseLearnedState(body: unknown): LearnedState {
     route: body.route,
     path: body.path.map(step),
     components,
-    componentSet: componentSetHash(components),
+    componentSet: body.path.length ? componentSetHash(components) : LANDING_SET,
     modules: body.modules as string[],
   };
 }

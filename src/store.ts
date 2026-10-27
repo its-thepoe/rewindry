@@ -421,8 +421,68 @@ export class WorkspaceStore {
   }
 
   markUiStatePathBroken(id: string): void {
-    const result = this.database().prepare("UPDATE ui_states SET status = 'path_broken' WHERE id = ?").run(id);
+    this.setUiStateStatus(id, "path_broken");
+  }
+
+  setUiStateStatus(id: string, status: UiState["status"]): void {
+    if (status !== "active" && status !== "path_broken") throw new Error("Invalid UI state status");
+    const result = this.database().prepare("UPDATE ui_states SET status = ? WHERE id = ?").run(status, id);
     if (!result.changes) throw new Error("UI state not found");
+  }
+
+  // What a replay actually rendered; identity (route + component set) is unchanged.
+  updateUiStateComponents(id: string, components: string[]): void {
+    if (!Array.isArray(components) || components.length > MAX_STATE_MODULES ||
+        !components.every((key) => typeof key === "string" && key.length > 0 && key.length <= 512)) {
+      throw new Error("Invalid UI state components");
+    }
+    const result = this.database().prepare("UPDATE ui_states SET components_json = ? WHERE id = ?").run(JSON.stringify(components), id);
+    if (!result.changes) throw new Error("UI state not found");
+  }
+
+  hasScreenFrame(checkpointId: string, stateId: string, profileId: string): boolean {
+    return !!this.database().prepare("SELECT 1 FROM screen_frames WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ?")
+      .get(checkpointId, stateId, profileId);
+  }
+
+  // The latest frame with an image from a checkpoint before the given one, for deduplication.
+  previousFrameImage(checkpointId: string, stateId: string, profileId: string): { checkpointId: string; imageDigest: string; unchangedFrom?: string } | undefined {
+    const row = this.database().prepare(`
+      SELECT screen_frames.checkpoint_id, image_digest, unchanged_from FROM screen_frames
+      JOIN checkpoints ON checkpoints.id = screen_frames.checkpoint_id
+      WHERE state_id = ? AND profile_id = ? AND image_digest IS NOT NULL
+        AND checkpoints.rowid < (SELECT rowid FROM checkpoints WHERE id = ?)
+      ORDER BY checkpoints.rowid DESC LIMIT 1
+    `).get(stateId, profileId, checkpointId) as { checkpoint_id: string; image_digest: string; unchanged_from: string | null } | undefined;
+    return row ? { checkpointId: row.checkpoint_id, imageDigest: row.image_digest, ...(row.unchanged_from ? { unchangedFrom: row.unchanged_from } : {}) } : undefined;
+  }
+
+  // The latest version of each component instance in a state/profile before the given checkpoint.
+  previousComponentCrops(checkpointId: string, stateId: string, profileId: string): Map<string, { checkpointId: string; cropDigest: string; unchangedFrom?: string }> {
+    const rows = this.database().prepare(`
+      SELECT component_versions.checkpoint_id, component_key, occurrence, crop_digest, unchanged_from FROM component_versions
+      JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
+      WHERE state_id = ? AND profile_id = ? AND checkpoints.rowid < (SELECT rowid FROM checkpoints WHERE id = ?)
+      ORDER BY checkpoints.rowid
+    `).all(stateId, profileId, checkpointId) as { checkpoint_id: string; component_key: string; occurrence: number; crop_digest: string; unchanged_from: string | null }[];
+    const latest = new Map<string, { checkpointId: string; cropDigest: string; unchangedFrom?: string }>();
+    for (const row of rows) {
+      latest.set(`${row.component_key}@${row.occurrence}`, {
+        checkpointId: row.checkpoint_id, cropDigest: row.crop_digest, ...(row.unchanged_from ? { unchangedFrom: row.unchanged_from } : {}),
+      });
+    }
+    return latest;
+  }
+
+  visualStorageBytes(): number {
+    const directory = join(this.storage, "visuals");
+    if (!existsSync(directory)) return 0;
+    if (lstatSync(directory).isSymbolicLink()) throw new Error("Visual directory is a symlink");
+    let bytes = 0;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile() && /^[a-f0-9]{64}\.png$/.test(entry.name)) bytes += lstatSync(join(directory, entry.name)).size;
+    }
+    return bytes;
   }
 
   recordScreenFrame(input: ScreenFrameInput): void {

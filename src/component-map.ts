@@ -12,7 +12,7 @@ let script: string | undefined;
 
 // The collector stays plain JS so test/build transforms cannot inject helpers it cannot see in the page.
 export function componentMapScript(): string {
-  script ??= readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'component-map.js'), 'utf8')
+  script ??= readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'component-collector.js'), 'utf8')
     .replace(/^(\s*\/\/[^\n]*\n)+/, '').trim();
   return script;
 }

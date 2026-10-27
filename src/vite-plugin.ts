@@ -60,7 +60,7 @@ const stripLeadingComments = (source: string) => source.replace(/^(\s*\/\/[^\n]*
 let recorderSource: string | undefined;
 function recorderScript(): string {
   recorderSource ??= `(${stripLeadingComments(readFileSync(join(assetDirectory(), 'recorder.js'), 'utf8'))})(` +
-    `${stripLeadingComments(readFileSync(join(assetDirectory(), 'component-map.js'), 'utf8'))});\n`;
+    `${stripLeadingComments(readFileSync(join(assetDirectory(), 'component-collector.js'), 'utf8'))});\n`;
   return recorderSource;
 }
 

@@ -5,6 +5,13 @@ import { captureCheckpoint, type PageCapture, type PreviewRecord } from './captu
 import { WorkspaceObserver } from './observer.ts';
 import { WorkspaceStore, type Checkpoint } from './store.ts';
 import { TurnManager, type AgentEvent, type Clock } from './turn-manager.ts';
+import { captureUiHistory, type FrameRenderer, type UiCaptureSummary } from './ui-capture.ts';
+
+type PreviewSettings = {
+  url: string; appId: string; route?: string; targets?: unknown; profiles?: unknown; capturePage?: PageCapture;
+  // Per-screen history runs for configured projects; an injected preview opts in by supplying a renderer.
+  uiRenderer?: FrameRenderer; uiHistory?: boolean;
+};
 
 export class RewindryRuntime {
   readonly store: WorkspaceStore;
@@ -13,13 +20,15 @@ export class RewindryRuntime {
   readonly workspaceId: string;
   observedWrites = 0;
   readonly captureResults = new Map<string, PreviewRecord>();
+  readonly uiCaptureResults = new Map<string, UiCaptureSummary | Error>();
   private readonly captureJobs = new Map<string, Promise<PreviewRecord>>();
+  private uiQueue: Promise<void> = Promise.resolve();
   private readonly root: string;
-  private readonly previewOverride?: { url: string; appId: string; route?: string; targets?: unknown; capturePage?: PageCapture };
+  private readonly previewOverride?: PreviewSettings;
 
   constructor(root: string, options?: {
     clock?: Clock; manualQuietMs?: number; settleMs?: number; staleTurnMs?: number; rescanIntervalMs?: number;
-    preview?: { url: string; appId: string; route?: string; targets?: unknown; capturePage?: PageCapture };
+    preview?: PreviewSettings;
   }) {
     const canonicalRoot = realpathSync(root);
     this.root = canonicalRoot;
@@ -70,19 +79,37 @@ export class RewindryRuntime {
       retrySourceOnly,
     }).then((record) => {
       this.captureResults.set(checkpoint.id, record);
+      if (record.status === 'captured' && (preview.uiRenderer || preview.uiHistory)) void this.queueUiHistory(checkpoint, preview);
       return record;
     }).finally(() => this.captureJobs.delete(checkpoint.id));
     this.captureJobs.set(checkpoint.id, job);
     return job;
   }
 
-  private currentPreview(): typeof this.previewOverride {
+  // One background browser at a time: per-screen captures for successive updates run in order.
+  private queueUiHistory(checkpoint: Checkpoint, preview: PreviewSettings): Promise<void> {
+    const run = this.uiQueue.then(async () => {
+      try {
+        this.uiCaptureResults.set(checkpoint.id, await captureUiHistory(this.root, this.store, checkpoint, {
+          previewUrl: preview.url, appId: preview.appId, route: preview.route, profiles: preview.profiles, renderer: preview.uiRenderer,
+        }));
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        this.uiCaptureResults.set(checkpoint.id, failure);
+        console.warn(`Rewindry screen history capture failed: ${failure.message}`);
+      }
+    });
+    this.uiQueue = run;
+    return run;
+  }
+
+  private currentPreview(): PreviewSettings | undefined {
     if (this.previewOverride) return this.previewOverride;
     const configPath = join(this.root, '.rewindry', 'config.json');
     if (!existsSync(configPath)) return undefined;
     try {
       const configured = JSON.parse(readFileSync(configPath, 'utf8')) as {
-        preview?: { url?: unknown; appId?: unknown; route?: unknown; targets?: unknown };
+        preview?: { url?: unknown; appId?: unknown; route?: unknown; targets?: unknown; profiles?: unknown };
       };
       const preview = configured.preview;
       if (typeof preview?.url !== 'string' || typeof preview.appId !== 'string') return undefined;
@@ -91,6 +118,8 @@ export class RewindryRuntime {
         appId: preview.appId,
         ...(typeof preview.route === 'string' ? { route: preview.route } : {}),
         ...(preview.targets !== undefined ? { targets: preview.targets } : {}),
+        ...(preview.profiles !== undefined ? { profiles: preview.profiles } : {}),
+        uiHistory: true,
       };
     } catch {
       return undefined;
@@ -101,5 +130,11 @@ export class RewindryRuntime {
     await this.observer.close();
     this.turns.close();
     await Promise.allSettled(this.captureJobs.values());
+    await this.uiQueue;
+  }
+
+  // Resolves once every per-screen capture queued so far has finished.
+  async uiHistoryIdle(): Promise<void> {
+    await this.uiQueue;
   }
 }
