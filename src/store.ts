@@ -72,6 +72,29 @@ const DEFAULT_INCLUDE = [
   "vite.config.*", "postcss.config.*", "tailwind.config.*", "tsconfig*.json",
   "jsconfig*.json", "*.config.css", "*.css",
 ];
+// `preview.viteConfig` names a project's Vite config when it is not `vite.config.*`, such as
+// `vite.demo-site.config.ts`. It must be a plain project-relative script path.
+const VITE_CONFIG_PATH = /^(?![./])(?!.*\.\.)[\w.-]+(?:\/[\w.-]+)*\.(?:[cm]?[jt]s)$/;
+export const VITE_CONFIG_LOADERS = ["bundle", "runner", "native"] as const;
+export type ViteConfigChoice = { file?: string; loader?: (typeof VITE_CONFIG_LOADERS)[number] };
+
+export function namedViteConfig(preview: { viteConfig?: unknown; viteConfigLoader?: unknown } | undefined): ViteConfigChoice {
+  const choice: ViteConfigChoice = {};
+  if (preview?.viteConfig !== undefined) {
+    if (typeof preview.viteConfig !== "string" || preview.viteConfig.length > 200 || !VITE_CONFIG_PATH.test(preview.viteConfig)) {
+      throw new Error("Invalid preview.viteConfig: use a project-relative .ts or .js path");
+    }
+    choice.file = preview.viteConfig;
+  }
+  if (preview?.viteConfigLoader !== undefined) {
+    if (!VITE_CONFIG_LOADERS.includes(preview.viteConfigLoader as never)) {
+      throw new Error(`Invalid preview.viteConfigLoader: use ${VITE_CONFIG_LOADERS.join(", ")}`);
+    }
+    choice.loader = preview.viteConfigLoader as ViteConfigChoice["loader"];
+  }
+  return choice;
+}
+
 const DEFAULT_EXCLUDE = [".rewindry/**", ".git/**", "node_modules/**", "dist/**", "build/**", "coverage/**"];
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
@@ -153,9 +176,13 @@ export class WorkspaceStore {
       if (!lstatSync(configPath).isFile()) throw new Error("Invalid store config");
       const config = JSON.parse(readFileSync(configPath, "utf8")) as {
         capture?: { include?: unknown; exclude?: unknown; maxFileBytes?: unknown; maxSourceBytes?: unknown };
+        preview?: { viteConfig?: unknown; viteConfigLoader?: unknown };
       };
       const capture = config.capture;
       if (capture?.include !== undefined) this.include = this.readPatterns(capture.include);
+      // A named Vite config is saved with each checkpoint so backfill can serve old source with it.
+      const viteConfig = namedViteConfig(config.preview).file;
+      if (viteConfig && !this.include.includes(viteConfig)) this.include = [...this.include, viteConfig];
       if (capture?.exclude !== undefined) this.exclude = [...DEFAULT_EXCLUDE, ...this.readPatterns(capture.exclude)];
       if (capture?.maxFileBytes !== undefined) {
         if (!Number.isSafeInteger(capture.maxFileBytes) || (capture.maxFileBytes as number) < 1) {
@@ -438,6 +465,13 @@ export class WorkspaceStore {
     }
     const result = this.database().prepare("UPDATE ui_states SET components_json = ? WHERE id = ?").run(JSON.stringify(components), id);
     if (!result.changes) throw new Error("UI state not found");
+  }
+
+  // When each state last produced an image (new or unchanged), for fair selection under the frame budget.
+  lastRenderedTimes(): Map<string, string> {
+    const rows = this.database().prepare("SELECT state_id, max(captured_at) AS at FROM screen_frames WHERE status IN ('captured', 'unchanged') GROUP BY state_id")
+      .all() as { state_id: string; at: string }[];
+    return new Map(rows.map((row) => [row.state_id, row.at]));
   }
 
   hasScreenFrame(checkpointId: string, stateId: string, profileId: string): boolean {

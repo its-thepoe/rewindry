@@ -28,6 +28,7 @@ async function until<T>(read: () => T, accept: (value: T) => boolean, label: str
 }
 
 const DIALOG = 'src/attribution/ItemDialog.tsx#ItemDialog';
+const HELP = 'src/attribution/HelpPanel.tsx#HelpPanel';
 
 test('ordinary use in a browser with the widget hidden teaches Rewindry how to reach a portaled dialog', { timeout: 90_000 }, async () => {
   const example = resolve('examples/vite-react');
@@ -76,22 +77,24 @@ test('ordinary use in a browser with the widget hidden teaches Rewindry how to r
     // Typing never reaches the store, even in a field the user clicked.
     await page.getByRole('textbox', { name: 'Search' }).click();
     await page.keyboard.type('secret-note-4711');
+    // People pause between clicks; steps only drop out once the page has settled in between.
+    await page.waitForTimeout(800);
     await page.getByRole('button', { name: 'Item 2' }).click();
     const dialog = (await until(states, (value) => value.some((state) => state.components.includes(DIALOG)), 'the dialog state'))
       .find((state) => state.components.includes(DIALOG))!;
     assert.equal(dialog.route, '/attribution.html');
     const path = dialog.path as { action: string; target: { by: string; role?: string; name?: string }[] }[];
-    assert.deepEqual(path.map((step) => step.action), ['click', 'click']);
-    assert.deepEqual(path[1]!.target[0], { by: 'role', role: 'button', name: 'Item 2', index: 0 });
-    assert.deepEqual(path[0]!.target[0], { by: 'role', role: 'textbox', name: 'Search', index: 0 });
+    // The click into Search left the screen as it was, so it is not part of the path.
+    assert.deepEqual(path.map((step) => step.action), ['click']);
+    assert.deepEqual(path[0]!.target[0], { by: 'role', role: 'button', name: 'Item 2', index: 0 });
 
-    // A shorter route to the same screen replaces the longer path.
     // Reports are fully read, so a page with the recorder still reaches network idle.
     await page.goto(base, { waitUntil: 'networkidle', timeout: 10_000 });
     assert.equal(states().length, 2, 'reloading a known state adds nothing');
     await page.getByRole('button', { name: 'Item 2' }).click();
-    await until(states, (value) => (value.find((state) => state.id === dialog.id)?.path.length ?? 0) === 1, 'the shortest dialog path');
+    await new Promise((done) => setTimeout(done, 1_000));
     assert.equal(states().length, 2);
+    assert.equal(states().find((state) => state.id === dialog.id)!.path.length, 1);
 
     // A URL change starts a new state that replays by loading that URL directly.
     await page.goto(`${base}?screen=profile`);
@@ -116,6 +119,54 @@ test('ordinary use in a browser with the widget hidden teaches Rewindry how to r
     const stored = states().find((state: UiState) => state.id === dialog.id)!.path as { target: { role: string; name: string; index: number }[] }[];
     await replay.getByRole(stored[0]!.target[0]!.role as 'button', { name: stored[0]!.target[0]!.name, exact: true }).nth(stored[0]!.target[0]!.index).click();
     await replay.getByRole('dialog', { name: 'Item 2' }).waitFor();
+
+    // Steps that open and dismiss something, or click a backdrop that does nothing, are dropped once the
+    // screen is back where it was: the next screen's path holds only the clicks that lead to it.
+    const welcomed = `${base}?welcome=1`;
+    await page.goto(welcomed);
+    await until(states, (value) => value.some((state) => state.route === '/attribution.html?welcome=1'), 'the welcome state');
+    await page.getByRole('dialog', { name: 'Welcome' }).click({ position: { x: 8, y: 8 } });
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: 'Close welcome' }).click();
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: 'Item 1' }).click();
+    await page.getByRole('dialog', { name: 'Item 1' }).waitFor();
+    await page.waitForTimeout(800);
+    await page.getByRole('dialog', { name: 'Item 1' }).getByRole('button', { name: 'Close' }).click();
+    await page.waitForTimeout(800);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(800);
+    const itemDialog = (await until(states, (value) => value.some((state) => state.route === '/attribution.html?welcome=1' && state.components.includes(DIALOG)), 'the item dialog after the welcome'))
+      .find((state) => state.route === '/attribution.html?welcome=1' && state.components.includes(DIALOG))!;
+    assert.deepEqual((itemDialog.path as { target?: { name?: string }[] }[]).map((step) => step.target?.[0]?.name), ['Close welcome', 'Item 1']);
+    // Item 1 was opened and closed, and Escape changed nothing: the Help panel is reached by two clicks, not six.
+    await page.getByRole('button', { name: 'Help' }).click();
+    const help = (await until(states, (value) => value.some((state) => state.route === '/attribution.html?welcome=1' && state.components.includes(HELP)), 'the help state'))
+      .find((state) => state.route === '/attribution.html?welcome=1' && state.components.includes(HELP))!;
+    assert.deepEqual((help.path as { target?: { name?: string }[] }[]).map((step) => step.target?.[0]?.name), ['Close welcome', 'Help']);
+
+    // A click that dismisses the modal and changes the URL carries that state over: reloading the new URL
+    // shows the modal again, so the next screen's path starts from the URL where Start was clicked.
+    await page.goto(welcomed);
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: 'Start' }).click();
+    await page.waitForURL(/view=board/);
+    await page.waitForTimeout(800);
+    await page.getByRole('button', { name: 'Item 3' }).click();
+    const boardRoute = '/attribution.html?welcome=1&view=board';
+    const carried = (await until(states, (value) => value.some((state) => state.route === boardRoute && state.components.includes(DIALOG)), 'the dialog after Start'))
+      .find((state) => state.route === boardRoute && state.components.includes(DIALOG))!;
+    const carriedPath = carried.path as { action: string; route?: string; target?: { name?: string }[] }[];
+    assert.deepEqual(carriedPath.map((step) => step.action === 'load' ? `load ${step.route}` : step.target?.[0]?.name),
+      ['load /attribution.html?welcome=1', 'Start', 'Item 3']);
+    const fresh = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await fresh.goto(`http://127.0.0.1:${vitePort}${boardRoute}`);
+    await fresh.getByRole('dialog', { name: 'Welcome' }).waitFor();
+    await fresh.goto(`http://127.0.0.1:${vitePort}${carriedPath[0]!.route}`);
+    await fresh.getByRole('button', { name: carriedPath[1]!.target![0]!.name! }).click();
+    await fresh.getByRole('button', { name: carriedPath[2]!.target![0]!.name! }).click();
+    await fresh.getByRole('dialog', { name: 'Item 3' }).waitFor();
+    await fresh.close();
 
     const database = readdirSync(join(root, '.rewindry')).filter((name) => name.startsWith('index.sqlite'))
       .map((name) => readFileSync(join(root, '.rewindry', name)).toString('latin1')).join('');

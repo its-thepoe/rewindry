@@ -102,3 +102,73 @@ test('backfill replays a learned dialog onto older checkpoints as labelled per-c
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('backfill serves old source with a Vite config named in preview.viteConfig, even one an old checkpoint did not save', { timeout: 240_000 }, async () => {
+  const example = resolve('examples/vite-react');
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-named-config-'));
+  cpSync(join(example, 'src', 'attribution'), join(root, 'src', 'attribution'), { recursive: true });
+  cpSync(join(example, 'attribution.html'), join(root, 'index.html'));
+  cpSync(join(example, 'package.json'), join(root, 'package.json'));
+  symlinkSync(join(example, 'node_modules'), join(root, 'node_modules'), 'dir');
+  // Like bingo-demo: no vite.config.*, and the config reads a file from the working directory (as Tailwind finds
+  // tailwind.config.js). Its plugin paints the page with that file, so frames show whether both worked.
+  writeFileSync(join(root, 'paint.css'), 'html, body { background: #0b6d65; }');
+  writeFileSync(join(root, 'vite.demo.config.ts'), [
+    `import { readFileSync } from 'node:fs';`,
+    `import { defineConfig } from 'vite';`,
+    `import react from '@vitejs/plugin-react';`,
+    `const paint = { name: 'paint', transformIndexHtml: (html) => html.replace('</head>', \`<style>\${readFileSync('paint.css', 'utf8')}</style></head>\`) };`,
+    `export default defineConfig({ plugins: [react(), paint] });`,
+  ].join('\n'));
+  const dialogFile = join(root, 'src', 'attribution', 'ItemDialog.tsx');
+  const dialogSource = readFileSync(dialogFile, 'utf8');
+  const config = (preview: Record<string, unknown>) => writeFileSync(join(root, '.rewindry', 'config.json'),
+    JSON.stringify({ preview: { appId: 'named-config-e2e', route: '/?welcome=1', profiles: [{ id: 'desktop', width: 1280, height: 800 }], ...preview } }));
+  try {
+    const before = new WorkspaceStore(root);
+    before.initialize();
+    config({});
+    const white = before.snapshot('baseline')!;
+    assert.ok(!white.files.some((file) => file.path === 'vite.demo.config.ts'), 'taken before the config was named');
+    config({ viteConfig: 'vite.demo.config.ts', viteConfigLoader: 'runner' });
+    const store = new WorkspaceStore(root);
+    store.initialize();
+    writeFileSync(dialogFile, dialogSource.replace("background: '#fff'", "background: '#fde68a'"));
+    const yellow = store.snapshot('agent_turn', 'turn-yellow')!;
+    assert.ok(yellow.files.some((file) => file.path === 'vite.demo.config.ts'), 'saved once named');
+    const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+    const dialogState = store.upsertUiState({
+      origin: 'learned', route: '/?welcome=1', componentSet: hash('dialog-state'), components: [DIALOG],
+      path: [
+        { action: 'click', target: [{ by: 'role', role: 'button', name: 'Close welcome', index: 0 }] },
+        { action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }] },
+      ],
+    });
+
+    let output = '';
+    const backfill = spawn(process.execPath, [resolve('dist/cli.js'), 'backfill', '--run-historical-source', '--root', root], { stdio: ['ignore', 'pipe', 'pipe'] });
+    for (const stream of [backfill.stdout, backfill.stderr]) stream.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+    assert.equal(await new Promise<number | null>((done) => backfill.once('exit', done)), 0, output);
+    assert.match(output, new RegExp(`${white.id}: vite\\.demo\\.config\\.ts was not saved with this checkpoint; using today's copy\\.`));
+    assert.match(output, /Screen history: \d+ captured, \d+ unchanged, 0 unreachable, 0 failed, 0 skipped\./, output);
+    assert.deepEqual(readdirSync(join(root, '.rewindry', 'tmp')), []);
+
+    const versions = store.listComponentVersions(DIALOG, 'desktop').filter((version) => version.stateId === dialogState.id);
+    assert.deepEqual(versions.map((version) => version.checkpointId), [white.id, yellow.id]);
+    const colour = (digest: string) => {
+      const image = decodePng(store.readVisual(digest));
+      const offset = ((image.height - 4) * image.width + 8) * 4;
+      return [...image.data.subarray(offset, offset + 3)];
+    };
+    assert.deepEqual(versions.map((version) => colour(version.cropDigest)), [[0xff, 0xff, 0xff], [0xfd, 0xe6, 0x8a]]);
+    // Both iterations were served through the named config: its page colour is in every replayed frame.
+    const frames = store.listScreenFrames(dialogState.id, 'desktop').filter((frame) => frame.imageDigest);
+    assert.equal(frames.length, 2);
+    for (const frame of frames) {
+      const image = decodePng(store.readVisual(frame.imageDigest!));
+      assert.deepEqual([...image.data.subarray(((2 * image.width) + 2) * 4, ((2 * image.width) + 2) * 4 + 3)], [0x0b, 0x6d, 0x65], frame.checkpointId);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -46,6 +46,8 @@ Rewindry can keep a separate history for every screen and React component you wo
 **How it learns screens.** While your Vite dev server runs with the Rewindry plugin, a small development-only recorder watches how you use the app in any browser: yours, a second browser, or a coding agent's test browser.
 - It records page URLs, clicks, the Escape key and dropdown choices, each as a few ways to find that control again (test ID, role and label, short CSS path).
 - When a click makes something new appear, such as a dialog, popover or sheet, the recorder saves how to get there from page load. Opening a screen once is enough.
+- Clicks that end up back on a screen you already had, such as opening and closing a dialog, pressing Escape or tapping a backdrop, are dropped from the saved path. This only works when the page settles (about 0.3 s) between clicks.
+- When a click changes the URL, such as an onboarding button that also closes a welcome popup, the saved path keeps the earlier clicks and replays from the URL where they began. Typing a URL, reloading, and Back or Forward start a fresh path from the new URL.
 
 **What it never records.** Typed text, input values, clipboard, cookies and browser storage. The dev server rejects any report that carries them.
 
@@ -71,6 +73,8 @@ Options in the `preview` object of `.rewindry/config.json`:
 | `widget` | `true` | `false` hides the development timeline widget. Capture and learning keep running. You can also pass `rewindryPreviewPlugin(appId, { widget: false })`. Don't remove the plugin to hide the widget, because removing it stops capture. |
 | `route` | `/` | The landing page that always gets history, for example `/?welcome=1`. |
 | `profiles` | mobile 390×844 @2x, tablet 768×1024 @2x, desktop 1280×800 | Up to 6 breakpoints, each `{ "id", "label", "width", "height", "isMobile", "hasTouch", "deviceScaleFactor" }`. |
+| `viteConfig` | `vite.config.*` | Your Vite config when it has another name, such as `vite.demo-site.config.ts`. It is saved with each checkpoint, and backfill serves old iterations with it. Iterations saved before you set it use today's copy, and backfill says so. |
+| `viteConfigLoader` | Vite's default | `bundle`, `runner` or `native`, passed to Vite when backfill loads the config. `bundle` writes a temporary file under `node_modules/.vite-temp`. |
 
 **Limits:**
 - Component zoom needs a React development build: React 19, or React 18 with the usual JSX dev transform (as `@vitejs/plugin-react` adds). Other apps get screen-level history only.

@@ -59,6 +59,14 @@ test('state selection puts the landing page first, then states rendering changed
   const tight = selectStates(all, new Set(['src/App.tsx', 'src/Sheet.tsx']), 'landing', 2);
   assert.deepEqual(tight.selected.map((item) => item.id), ['landing', 'sheet']);
   assert.deepEqual(tight.skipped.map((item) => item.id), ['dialog']);
+  // A file every state loads ranks the states that actually render it first...
+  const cash = state('cash', ['src/App.tsx#App', 'src/CashOut.tsx#CashOut'], ['src/CashOut.tsx']);
+  const loads = [state('a', ['src/A.tsx#A'], ['src/CashOut.tsx']), state('b', ['src/B.tsx#B'], ['src/CashOut.tsx']), cash];
+  assert.deepEqual(selectStates([landing, ...loads], new Set(['src/CashOut.tsx']), 'landing', 2).selected.map((item) => item.id), ['landing', 'cash']);
+  // ...and states skipped last time (rendered longest ago, or never) lead the next update.
+  const lastRendered = new Map([['a', '2026-10-27T10:00:00Z'], ['b', '2026-10-27T09:00:00Z']]);
+  assert.deepEqual(selectStates([landing, ...loads], new Set(['src/App.tsx']), 'landing', 2, lastRendered).selected.map((item) => item.id), ['landing', 'cash']);
+  assert.deepEqual(selectStates([landing, ...loads], new Set(['src/A.tsx', 'src/B.tsx']), 'landing', 2, lastRendered).selected.map((item) => item.id), ['landing', 'b']);
 });
 
 async function previewServer(): Promise<{ url: string; server: Server; identity: { appId: string; serverId: string; generation: number; readiness: string } }> {
@@ -186,6 +194,47 @@ test('per-screen capture keeps only real visual changes for screens and componen
     };
     await assert.rejects(captureUiHistory(root, store, raced, { ...options, renderer: racing }), /Source moved during capture/);
     assert.equal(store.listScreenFrames(landing.id).some((frame) => frame.checkpointId === raced.id), false);
+  } finally {
+    preview.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a stored route that would leave the preview origin fails only its own frames, and carried paths start from their first URL', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-ui-route-'));
+  const preview = await previewServer();
+  try {
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src', 'App.tsx'), 'app v1');
+    const store = new WorkspaceStore(root);
+    store.initialize();
+    // Learned before routes were checked: a typed `//wallet` URL resolves to the host `wallet`.
+    const stray = store.upsertUiState({ origin: 'learned', route: '//wallet', path: [], componentSet: componentSetHash(['src/App.tsx#App', 'src/App.tsx#Wallet']),
+      components: ['src/App.tsx#App', 'src/App.tsx#Wallet'] });
+    const calls: string[] = [];
+    const result = await captureUiHistory(root, store, store.snapshot('baseline')!, { previewUrl: preview.url, appId: 'ui-test',
+      profiles: [{ id: 'mobile', width: 20, height: 10 }], renderer: fakeRenderer(() => ({ color: [255, 255, 255] }), calls) });
+    assert.deepEqual([result.captured, result.failed], [1, 1]);
+    assert.deepEqual(calls, ['/@mobile'], 'the stray route is never rendered');
+    assert.deepEqual(store.listScreenFrames(stray.id).map((frame) => [frame.status, frame.reason]), [['failed', 'Screen route is not on the preview origin']]);
+
+    // A carried path loads the URL where its steps began, then performs only the clicks; its start URL is origin-checked too.
+    const dialogStep = { action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }] };
+    store.upsertUiState({ origin: 'learned', route: '/board', path: [{ action: 'load', route: '/welcome' }, dialogStep],
+      componentSet: componentSetHash(['src/App.tsx#App', 'src/App.tsx#Dialog']), components: ['src/App.tsx#App', 'src/App.tsx#Dialog'] });
+    const away = store.upsertUiState({ origin: 'learned', route: '/board', path: [{ action: 'load', route: '//elsewhere/' }, dialogStep],
+      componentSet: componentSetHash(['src/App.tsx#App', 'src/App.tsx#Other']), components: ['src/App.tsx#App', 'src/App.tsx#Other'] });
+    writeFileSync(join(root, 'src', 'App.tsx'), 'app v2');
+    calls.length = 0;
+    const actions: string[][] = [];
+    const inner = fakeRenderer(() => ({ color: [255, 255, 255] }), calls);
+    const recording: FrameRenderer = { render: (url, profile, path) => { actions.push(path.map((item) => item.action)); return inner.render(url, profile, path); }, close: async () => {} };
+    await captureUiHistory(root, store, store.snapshot('unattributed_group')!, { previewUrl: preview.url, appId: 'ui-test',
+      profiles: [{ id: 'mobile', width: 20, height: 10 }], renderer: recording });
+    assert.ok(calls.includes('/welcome+dialog@mobile'), JSON.stringify(calls));
+    assert.ok(actions.every((list) => !list.includes('load')), JSON.stringify(actions));
+    assert.ok(!calls.some((call) => call.startsWith('/board')), JSON.stringify(calls));
+    assert.equal(store.listScreenFrames(away.id).at(-1)!.status, 'failed');
   } finally {
     preview.server.close();
     rmSync(root, { recursive: true, force: true });

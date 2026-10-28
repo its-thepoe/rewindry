@@ -5,7 +5,8 @@ import type { UiStateInput } from './store.ts';
 export const MAX_UI_STATES = 200;
 const MAX_STEPS = 25;
 const MAX_COMPONENTS = 2_000;
-const ROUTE = /^\/[^\s#]{0,2047}$/;
+// A leading `//` (or a backslash, which URL parsing treats as `/`) would resolve to another host.
+const ROUTE = /^\/(?!\/)[^\s#\\]{0,2047}$/;
 
 export type Locator =
   | { by: 'testid'; value: string; index: number }
@@ -15,7 +16,11 @@ export type InteractionStep =
   | { action: 'click'; target: Locator[] }
   | { action: 'select'; target: Locator[]; option: { index: number } }
   | { action: 'key'; key: 'Escape' };
-export type LearnedState = UiStateInput & { path: InteractionStep[]; components: string[] };
+// A screen reached by a click that changed the URL keeps the earlier page's steps (a dismissed
+// welcome sheet, say), so its path starts by loading the URL where those steps began.
+export type StartStep = { action: 'load'; route: string };
+export type LearnedStep = StartStep | InteractionStep;
+export type LearnedState = UiStateInput & { path: LearnedStep[]; components: string[] };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -42,8 +47,12 @@ function targets(value: unknown): Locator[] {
   return value.map(locator);
 }
 
-function step(value: unknown): InteractionStep {
+function step(value: unknown, position: number): LearnedStep {
   if (!isRecord(value)) throw new Error('Invalid step');
+  if (value.action === 'load' && position === 0 && exactKeys(value, ['action', 'route']) &&
+      typeof value.route === 'string' && ROUTE.test(value.route)) {
+    return { action: 'load', route: value.route };
+  }
   if (value.action === 'click' && exactKeys(value, ['action', 'target'])) return { action: 'click', target: targets(value.target) };
   if (value.action === 'select' && exactKeys(value, ['action', 'target', 'option']) &&
       isRecord(value.option) && exactKeys(value.option, ['index']) && index(value.option.index, 999)) {
@@ -51,6 +60,14 @@ function step(value: unknown): InteractionStep {
   }
   if (value.action === 'key' && exactKeys(value, ['action', 'key']) && value.key === 'Escape') return { action: 'key', key: 'Escape' };
   throw new Error('Invalid step');
+}
+
+// Where replay starts and which steps it performs there.
+export function replayStart(route: string, path: unknown[]): { route: string; steps: InteractionStep[] } {
+  const first = path[0] as Partial<StartStep> | undefined;
+  return first?.action === 'load' && typeof first.route === 'string'
+    ? { route: first.route, steps: path.slice(1) as InteractionStep[] }
+    : { route, steps: path as InteractionStep[] };
 }
 
 export function componentSetHash(components: string[]): string {
@@ -87,7 +104,7 @@ export function parseLearnedState(body: unknown, root?: string): LearnedState {
   return {
     origin: 'learned',
     route: body.route,
-    path: body.path.map(step),
+    path: body.path.map((value, position) => step(value, position)),
     components,
     componentSet: body.path.length ? componentSetHash(components) : LANDING_SET,
     modules: body.modules as string[],

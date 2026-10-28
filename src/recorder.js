@@ -14,8 +14,13 @@
   try { performance.setResourceTimingBufferSize(5_000); } catch { /* Older engines keep their default buffer. */ }
 
   let route = location.pathname + location.search;
+  // The URL the current steps start from; it differs from `route` after a click changed the URL.
+  let start = route;
   let steps = [];
+  let clicked = false;
   let known = new Set();
+  // Shortest path to each screen seen since this URL loaded, keyed by its component set.
+  let reached = new Map();
   let queue = Promise.resolve();
 
   const normalize = (text) => (text ?? '').replace(/\s+/g, ' ').trim();
@@ -122,35 +127,54 @@
   };
 
   const snapshot = async (force) => {
+    clicked = false;
     let keys = [];
     try { keys = [...new Set(collectComponentMap().components.map((item) => item.key))].sort(); } catch { /* Screen-level only. */ }
     const appeared = keys.some((key) => !known.has(key));
     known = new Set(keys);
-    if ((!force && !appeared) || steps.length > MAX_STEPS) return;
+    // Back on a screen reached earlier (a dialog closed by its button, Escape or the backdrop):
+    // the steps that opened and dismissed it are dropped, so replay never depends on them.
+    const screen = `${route}\n${keys.join('\n')}`;
+    const earlier = reached.get(screen);
+    if (earlier && earlier.length <= steps.length) steps = earlier.slice();
+    else reached.set(screen, steps.slice());
+    const path = start === route ? steps : [{ action: 'load', route: start }, ...steps];
+    if ((!force && !appeared) || path.length > MAX_STEPS) return;
     try {
       const response = await fetch(ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ route, path: steps, components: keys, modules: loadedModules() }),
+        body: JSON.stringify({ route, path, components: keys, modules: loadedModules() }),
       });
       // Drain the body: an unread response stays open and keeps the page from reaching network idle.
       await response.arrayBuffer();
     } catch { /* Learning is best-effort; the app must never notice. */ }
   };
 
-  // A URL change starts a new state: replay loads that URL directly instead of re-clicking to it.
-  const routeChanged = () => {
+  // A URL change starts a new state. When a click changed it, the app may carry state across (a
+  // welcome sheet that click dismissed), so the steps so far are kept and replay starts from the
+  // earlier URL. Otherwise (load-time redirects, Back and Forward) replay loads the new URL directly.
+  const routeChanged = (history) => {
     const next = location.pathname + location.search;
     if (next === route) return false;
+    const carried = clicked && !history;
     route = next;
-    steps = [];
     known = new Set();
+    if (!carried) {
+      start = next;
+      steps = [];
+      reached = new Map();
+    }
     return true;
   };
 
-  const after = (step) => {
-    if (step) steps.push(step);
-    queue = queue.then(settle).then(() => snapshot(routeChanged())).catch(() => {});
+  // Steps join the path at click time, so each snapshot's path matches the page it sees after settling.
+  const after = (step, history = false) => {
+    if (step) {
+      steps.push(step);
+      clicked = true;
+    }
+    queue = queue.then(settle).then(() => snapshot(routeChanged(history))).catch(() => {});
   };
 
   const outsideRewindry = (element) => !element.closest('#rewindry-overlay-root');
@@ -174,6 +198,6 @@
     if (event.isTrusted && event.key === 'Escape') after({ action: 'key', key: 'Escape' });
   }, true);
 
-  window.addEventListener('popstate', () => after(null));
+  window.addEventListener('popstate', () => after(null, true));
   queue = queue.then(settle).then(() => snapshot(true)).catch(() => {});
 }

@@ -6,7 +6,7 @@ import { identity, localPreview, previewUsage } from './capture.ts';
 import { collectComponentMap, type ComponentInstance } from './component-map.ts';
 import { cropImage, decodePng, encodePng } from './png.ts';
 import type { Checkpoint, ComponentVersionInput, UiState, WorkspaceStore } from './store.ts';
-import { LANDING_SET, projectRelativeKey, type InteractionStep, type Locator } from './ui-states.ts';
+import { LANDING_SET, projectRelativeKey, replayStart, type InteractionStep, type Locator } from './ui-states.ts';
 
 export type CaptureProfile = {
   id: string; label: string; width: number; height: number; isMobile: boolean; hasTouch: boolean; deviceScaleFactor: number;
@@ -94,9 +94,16 @@ const componentFile = (key: string) => key.slice(0, key.lastIndexOf('#'));
 
 // States that render a changed file come first; the landing page is always included. When a
 // change touches no known state (a global stylesheet, say), the most recently used states stand in.
-export function selectStates(states: UiState[], changed: Set<string>, landingId: string, maxStates: number): { selected: UiState[]; skipped: UiState[] } {
-  const touches = (state: UiState) => state.components.some((key) => changed.has(componentFile(key))) || state.modules.some((path) => changed.has(path));
-  const matched = states.filter((state) => state.id !== landingId && touches(state));
+// Order within the budget: states that render a changed component, then states that only load a
+// changed module, each least recently rendered first, so states skipped by one update lead the next.
+export function selectStates(states: UiState[], changed: Set<string>, landingId: string, maxStates: number,
+  lastRendered: Map<string, string> = new Map()): { selected: UiState[]; skipped: UiState[] } {
+  const rendersChange = (state: UiState) => state.components.some((key) => changed.has(componentFile(key)));
+  const loadsChange = (state: UiState) => state.modules.some((path) => changed.has(path));
+  const matched = states.filter((state) => state.id !== landingId && (rendersChange(state) || loadsChange(state)));
+  const priority = (state: UiState) => rendersChange(state) ? 0 : 1;
+  const rendered = (state: UiState) => lastRendered.get(state.id) ?? '';
+  matched.sort((a, b) => priority(a) - priority(b) || rendered(a).localeCompare(rendered(b)));
   const landing = states.find((state) => state.id === landingId);
   const ordered = matched.length ? matched : states.filter((state) => state.id !== landingId);
   const candidates = [...(landing ? [landing] : []), ...ordered];
@@ -130,6 +137,13 @@ export function pickCropSources(shots: { image: { width: number; height: number 
   return [...chosen.values()].filter((item) => item.area > 0).map(({ whole: _whole, area: _area, ...item }) => item);
 }
 
+function sameOrigin(route: string, base: URL): URL | undefined {
+  try {
+    const url = localPreview(new URL(route, base).toString());
+    return url.origin === base.origin ? url : undefined;
+  } catch { return undefined; }
+}
+
 export async function captureUiHistory(root: string, store: WorkspaceStore, checkpoint: Checkpoint, options: UiCaptureOptions): Promise<UiCaptureSummary> {
   const summary: UiCaptureSummary = { states: 0, captured: 0, unchanged: 0, pathBroken: 0, failed: 0, skipped: 0 };
   const base = localPreview(options.previewUrl);
@@ -144,7 +158,7 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   }
   const states = store.listUiStates();
   const landing = states.find((state) => state.route === route && state.componentSet === LANDING_SET)!;
-  const { selected, skipped } = selectStates(states, changedFiles(store, checkpoint), landing.id, maxStates);
+  const { selected, skipped } = selectStates(states, changedFiles(store, checkpoint), landing.id, maxStates, store.lastRenderedTimes());
   summary.states = selected.length;
 
   const sourceDigest = options.sourceDigest ?? (() => store.currentDigest());
@@ -157,11 +171,14 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   const renderer = options.renderer ?? await createFrameRenderer();
   try {
     for (const state of selected) {
-      const url = localPreview(new URL(state.route, base).toString());
-      if (url.origin !== base.origin) throw new Error('UI state route changed origin');
+      // A stored route that leaves the preview origin fails only its own frames, not the whole checkpoint.
+      const start = replayStart(state.route, state.path);
+      const url = sameOrigin(start.route, base);
       for (const profile of profiles) {
         if (store.hasScreenFrame(checkpoint.id, state.id, profile.id)) continue;
-        renders.push({ state, profile, result: await renderer.render(url.toString(), profile, state.path as InteractionStep[]) });
+        renders.push({ state, profile, result: url
+          ? await renderer.render(url.toString(), profile, start.steps)
+          : { status: 'failed', reason: 'Screen route is not on the preview origin' } });
       }
     }
   } finally {

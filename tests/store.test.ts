@@ -112,6 +112,26 @@ test("source policy covers build inputs while excluding generated and private da
   } finally { cleanup(); }
 });
 
+test("a Vite config named in preview.viteConfig is saved with checkpoints; unsafe names are refused", () => {
+  const { root, store, cleanup } = fixture();
+  try {
+    writeFileSync(join(root, "vite.demo-site.config.ts"), "export default {}");
+    writeFileSync(join(root, "package.json"), "{}");
+    assert.deepEqual(store.snapshot("baseline")!.files.map((file) => file.path), ["package.json"]);
+    writeFileSync(join(root, ".rewindry", "config.json"), JSON.stringify({ preview: { viteConfig: "vite.demo-site.config.ts" } }));
+    const named = new WorkspaceStore(root);
+    named.initialize();
+    writeFileSync(join(root, "package.json"), "{\"name\":\"demo\"}");
+    assert.deepEqual(named.snapshot("unattributed_group")!.files.map((file) => file.path), ["package.json", "vite.demo-site.config.ts"]);
+    for (const viteConfig of ["../vite.config.ts", "/etc/vite.config.ts", "./vite.config.ts", "vite.config.json", "a/../b.ts", 7]) {
+      writeFileSync(join(root, ".rewindry", "config.json"), JSON.stringify({ preview: { viteConfig } }));
+      assert.throws(() => new WorkspaceStore(root).initialize(), /Invalid preview\.viteConfig/, String(viteConfig));
+    }
+    writeFileSync(join(root, ".rewindry", "config.json"), JSON.stringify({ preview: { viteConfigLoader: "eval" } }));
+    assert.throws(() => new WorkspaceStore(root).initialize(), /Invalid preview\.viteConfigLoader/);
+  } finally { cleanup(); }
+});
+
 test("rejects traversal and ignores symlinks escaping the workspace", () => {
   const { root, store, cleanup } = fixture();
   const outside = mkdtempSync(join(tmpdir(), "rewindry-outside-"));

@@ -292,6 +292,43 @@ test('backfill replays learned screens against each checkpoint\'s saved files, l
   }
 });
 
+test('backfill serves old source with the named Vite config, using today\'s copy when a checkpoint did not save it', async () => {
+  const { root, cleanup } = fixture();
+  const store = new WorkspaceStore(root);
+  store.initialize();
+  const unsaved = store.snapshot('baseline')!;
+  writeFileSync(join(root, 'vite.demo.config.ts'), 'export default { define: { TODAY: 1 } }');
+  writeFileSync(join(root, '.rewindry', 'config.json'), JSON.stringify({ preview: { appId: 'fixture', viteConfig: 'vite.demo.config.ts' } }));
+  const named = new WorkspaceStore(root);
+  named.initialize();
+  writeFileSync(join(root, 'vite.demo.config.ts'), 'export default { define: { SAVED: 1 } }');
+  writeFileSync(join(root, 'src', 'app.ts'), 'second saved state');
+  const saved = named.snapshot('agent_turn', 'turn-2')!;
+  writeFileSync(join(root, 'vite.demo.config.ts'), 'export default { define: { TODAY: 1 } }');
+  const served: string[] = [];
+  const output: string[] = [];
+  try {
+    await runBackfill(root, { out: (line) => output.push(line), error: (line) => output.push(line) }, {
+      startPreview: async (snapshotRoot) => {
+        served.push(readFileSync(join(snapshotRoot, 'vite.demo.config.ts'), 'utf8'));
+        return { previewUrl: 'http://127.0.0.1:1/', close: async () => {} };
+      },
+      capture: async (_activeRoot, sourceStore, checkpoint) => {
+        // The borrowed config is not part of the checkpoint, so its source digest still matches.
+        assert.equal(sourceStore.currentDigest(), checkpoint.digest);
+        return successfulRecord(checkpoint);
+      },
+    });
+    assert.deepEqual(served, ['export default { define: { TODAY: 1 } }', 'export default { define: { SAVED: 1 } }']);
+    assert.ok(output.includes(`Backfill ${unsaved.id}: vite.demo.config.ts was not saved with this checkpoint; using today's copy.`), output.join('\n'));
+    assert.ok(!output.some((line) => line.startsWith(`Backfill ${saved.id}: vite.demo.config.ts`)));
+    writeFileSync(join(root, '.rewindry', 'config.json'), JSON.stringify({ preview: { appId: 'fixture', viteConfig: '../outside.ts' } }));
+    await assert.rejects(runBackfill(root, { out: () => {}, error: () => {} }, {}), /Invalid preview\.viteConfig/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('backfill --last N replays only the newest N checkpoints, oldest first, and rejects bad values', async () => {
   const { root, cleanup } = fixture();
   const store = new WorkspaceStore(root);

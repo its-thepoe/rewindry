@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LANDING_SET, componentSetHash, parseLearnedState, projectRelativeKey } from '../src/ui-states.ts';
+import { LANDING_SET, componentSetHash, parseLearnedState, projectRelativeKey, replayStart } from '../src/ui-states.ts';
 
 const click = { action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }, { by: 'css', value: 'main > section > button:nth-of-type(2)', index: 0 }] };
 const report = (overrides: Record<string, unknown> = {}) => ({
   route: '/?screen=home', path: [click, { action: 'key', key: 'Escape' }],
   components: ['src/Cell.tsx#Cell', 'src/App.tsx#App', 'src/Cell.tsx#Cell'], modules: ['src/App.tsx'], ...overrides,
+});
+
+test('a screen reached by a click that changed the URL replays from the URL where its steps began', () => {
+  const carried = parseLearnedState(report({ route: '/?view=board', path: [{ action: 'load', route: '/?welcome=1' }, click] }));
+  assert.deepEqual(carried.path[0], { action: 'load', route: '/?welcome=1' });
+  assert.notEqual(carried.componentSet, LANDING_SET);
+  assert.deepEqual(replayStart(carried.route, carried.path), { route: '/?welcome=1', steps: [click] });
+  assert.deepEqual(replayStart('/', [click]), { route: '/', steps: [click] });
 });
 
 test('a recorder report becomes a learned state keyed by its visible component set', () => {
@@ -35,6 +43,10 @@ test('reports carrying typed text, values or unknown fields are refused', () => 
     [report({ path: Array.from({ length: 26 }, () => click) }), /Invalid state path/],
     [report({ route: 'https://evil.example/' }), /Invalid state route/],
     [report({ route: '/#fragment' }), /Invalid state route/],
+    [report({ route: '//evil.example/wallet' }), /Invalid state route/],
+    [report({ path: [click, { action: 'load', route: '/' }] }), /Invalid step/],
+    [report({ path: [{ action: 'load', route: '//evil.example/' }, click] }), /Invalid step/],
+    [report({ route: '/\\evil.example/' }), /Invalid state route/],
     [report({ components: ['no-hash-separator'] }), /Invalid state components/],
     [report({ cookies: 'session=1' }), /Invalid state report/],
     [report({ storage: {} }), /Invalid state report/],

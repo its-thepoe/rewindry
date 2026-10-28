@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -14,7 +15,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { captureBackfillVariants, type BackfillCaptureOptions, type PreviewRecord } from './capture.ts';
-import { WorkspaceStore, type Checkpoint } from './store.ts';
+import { WorkspaceStore, namedViteConfig, type Checkpoint, type ViteConfigChoice } from './store.ts';
 import { captureUiHistory, type UiCaptureSummary } from './ui-capture.ts';
 
 const BACKFILL_IDENTITY_PATH = '/__rewindry/backfill-preview';
@@ -167,7 +168,7 @@ function backfillIdentityPlugin(appId: string) {
   };
 }
 
-async function startHistoricalPreview(activeRoot: string, root: string, appId: string): Promise<ReplayServer> {
+async function startHistoricalPreview(activeRoot: string, root: string, appId: string, viteConfig: ViteConfigChoice = {}): Promise<ReplayServer> {
   const nodeModules = join(activeRoot, 'node_modules');
   if (!existsSync(nodeModules)) throw new Error('Current project node_modules are unavailable');
   const installedModules = realpathSync(nodeModules);
@@ -187,13 +188,26 @@ async function startHistoricalPreview(activeRoot: string, root: string, appId: s
     }>;
   };
   const proofPlugin = backfillIdentityPlugin(appId);
-  const server = await vite.createServer({
-    root,
-    configFile: undefined,
-    cacheDir: join(root, '.rewindry-vite-cache'),
-    plugins: [proofPlugin],
-    server: { host: '127.0.0.1', port: 0, strictPort: false, open: false, cors: false, proxy: {} },
-  });
+  // Configs and plugins such as Tailwind and PostCSS resolve some files from the working directory, as when
+  // `vite` runs in the project. Backfill serves one checkpoint at a time, so it works inside that copy until close.
+  const previousCwd = process.cwd();
+  process.chdir(root);
+  const restoreCwd = () => process.chdir(previousCwd);
+  let server: Awaited<ReturnType<typeof vite.createServer>>;
+  try {
+    server = await vite.createServer({
+      root,
+      // The project's named config when it has one; otherwise Vite finds `vite.config.*` itself.
+      configFile: viteConfig.file ? join(root, viteConfig.file) : undefined,
+      ...(viteConfig.loader ? { configLoader: viteConfig.loader } : {}),
+      cacheDir: join(root, '.rewindry-vite-cache'),
+      plugins: [proofPlugin],
+      server: { host: '127.0.0.1', port: 0, strictPort: false, open: false, cors: false, proxy: {} },
+    });
+  } catch (error) {
+    restoreCwd();
+    throw error;
+  }
   try {
     if (resolve(server.config.root) !== resolve(root) || server.config.server.host !== '127.0.0.1' ||
         server.config.server.port !== 0 || resolve(server.config.cacheDir) !== resolve(root, '.rewindry-vite-cache') ||
@@ -205,14 +219,15 @@ async function startHistoricalPreview(activeRoot: string, root: string, appId: s
     if (!address || typeof address === 'string' || address.address !== '127.0.0.1') {
       throw new Error('Historical Vite preview did not bind to loopback');
     }
-    return { previewUrl: `http://127.0.0.1:${address.port}/`, close: () => server.close() };
+    return { previewUrl: `http://127.0.0.1:${address.port}/`, close: () => server.close().finally(restoreCwd) };
   } catch (error) {
     await server.close().catch(() => {});
+    restoreCwd();
     throw error;
   }
 }
 
-type PreviewConfig = { preview?: { appId?: unknown; targets?: unknown; route?: unknown; profiles?: unknown } };
+type PreviewConfig = { preview?: { appId?: unknown; targets?: unknown; route?: unknown; profiles?: unknown; viteConfig?: unknown; viteConfigLoader?: unknown } };
 
 function currentPreviewConfig(root: string): PreviewConfig {
   const path = join(root, '.rewindry', 'config.json');
@@ -245,6 +260,7 @@ export async function runBackfill(
   store.initialize();
   const config = currentPreviewConfig(canonicalRoot);
   const appId = appIdFor(canonicalRoot, config);
+  const viteConfig = namedViteConfig(config.preview);
   const all = store.list();
   const checkpoints = options.last === undefined ? all : all.slice(-options.last);
   if (checkpoints.length < all.length) io.out(`Backfill: the newest ${checkpoints.length} of ${all.length} checkpoints.`);
@@ -274,8 +290,15 @@ export async function runBackfill(
         const files = materializeCheckpointSnapshot(temporaryRoot, checkpoint, store);
         const sourceStore = { currentDigest: () => materializedDigest(temporaryRoot!, files) };
         if (sourceStore.currentDigest() !== checkpoint.digest) throw new Error(`Checkpoint materialization digest mismatch: ${checkpoint.id}`);
+        // Checkpoints taken before the config was named did not save it: serve them with today's copy, and say so.
+        // It is outside the checkpoint's file list, so the source digest still covers only saved files.
+        if (viteConfig.file && !existsSync(join(temporaryRoot, viteConfig.file)) && existsSync(join(canonicalRoot, viteConfig.file))) {
+          mkdirSync(dirname(join(temporaryRoot, viteConfig.file)), { recursive: true });
+          copyFileSync(join(canonicalRoot, viteConfig.file), join(temporaryRoot, viteConfig.file));
+          io.out(`Backfill ${checkpoint.id}: ${viteConfig.file} was not saved with this checkpoint; using today's copy.`);
+        }
         const startPreview = services.startPreview ?? ((snapshotRoot, previewAppId) =>
-          startHistoricalPreview(canonicalRoot, snapshotRoot, previewAppId));
+          startHistoricalPreview(canonicalRoot, snapshotRoot, previewAppId, viteConfig));
         try {
           replay = await startPreview(temporaryRoot, appId, checkpoint.id);
         } catch (error) {
