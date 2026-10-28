@@ -185,6 +185,14 @@ test('per-screen capture keeps only real visual changes for screens and componen
     writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v5b');
     scene = { ...scene, broken: false };
 
+    // A later run retries only the frames that have no image, and replaces them in place.
+    const retried = await captureUiHistory(root, store, replayedCheckpoint, { ...options, captureMode: 'replayed', sourceDigest: () => replayedCheckpoint.digest });
+    assert.deepEqual([retried.pathBroken, retried.captured + retried.unchanged], [0, 2]);
+    const retriedFrames = store.listScreenFrames(dialogState.id).filter((frame) => frame.checkpointId === replayedCheckpoint.id);
+    assert.equal(retriedFrames.length, 2);
+    assert.ok(retriedFrames.every((frame) => frame.imageDigest && frame.captureMode === 'replayed'));
+    assert.equal((await captureUiHistory(root, store, replayedCheckpoint, { ...options, captureMode: 'replayed', sourceDigest: () => replayedCheckpoint.digest })).captured, 0);
+
     // If the source changes while rendering, nothing from that run is published.
     writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v6');
     const raced = store.snapshot('unattributed_group')!;

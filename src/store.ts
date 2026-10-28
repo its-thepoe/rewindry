@@ -474,9 +474,10 @@ export class WorkspaceStore {
     return new Map(rows.map((row) => [row.state_id, row.at]));
   }
 
-  hasScreenFrame(checkpointId: string, stateId: string, profileId: string): boolean {
-    return !!this.database().prepare("SELECT 1 FROM screen_frames WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ?")
-      .get(checkpointId, stateId, profileId);
+  // A frame with an image (captured or unchanged) is final; unreachable, failed and skipped frames are retried by a later run.
+  hasRenderedScreenFrame(checkpointId: string, stateId: string, profileId: string): boolean {
+    return !!this.database().prepare(`SELECT 1 FROM screen_frames WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ?
+      AND status IN ('captured', 'unchanged')`).get(checkpointId, stateId, profileId);
   }
 
   // The latest frame with an image from a checkpoint before the given one, for deduplication.
@@ -568,6 +569,9 @@ export class WorkspaceStore {
     }
     db.exec("BEGIN IMMEDIATE");
     try {
+      // A retry replaces an earlier frame without an image; a rendered frame is never replaced.
+      db.prepare(`DELETE FROM screen_frames WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ?
+        AND status NOT IN ('captured', 'unchanged')`).run(input.checkpointId, input.stateId, input.profileId);
       db.prepare(`INSERT INTO screen_frames (checkpoint_id, state_id, profile_id, status, image_digest, unchanged_from, capture_mode, reason, captured_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.checkpointId, input.stateId, input.profileId, input.status,
         input.imageDigest ?? null, input.unchangedFrom ?? null, input.captureMode, input.reason?.slice(0, 512) ?? null,

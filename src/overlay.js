@@ -1,5 +1,6 @@
 (() => {
-  if (document.getElementById('rewindry-overlay-root')) return;
+  // Rewindry's own capture browsers render the app alone: the widget would cover and intercept clicks.
+  if (globalThis.__rewindryCapture || document.getElementById('rewindry-overlay-root')) return;
   const host = document.createElement('div');
   host.id = 'rewindry-overlay-root';
   const shadow = host.attachShadow({ mode: 'open' });

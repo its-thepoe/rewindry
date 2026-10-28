@@ -465,6 +465,16 @@ test("UI states merge by route and visible components, and frames record compone
       [[first.id, box], [second.id, box]]);
     assert.deepEqual(store.listComponentVersions("src/ItemDialog.tsx#ItemDialog", "desktop"), []);
 
+    // Frames with an image are final; an unreachable frame is retried and replaced by a later run.
+    assert.equal(store.hasRenderedScreenFrame(second.id, state.id, "mobile"), true);
+    assert.equal(store.hasRenderedScreenFrame(second.id, state.id, "desktop"), false);
+    assert.throws(() => store.recordScreenFrame({ checkpointId: second.id, stateId: state.id, profileId: "mobile", status: "failed", captureMode: "live" }), /UNIQUE constraint/);
+    store.recordScreenFrame({ checkpointId: second.id, stateId: state.id, profileId: "desktop", status: "failed", captureMode: "replayed", reason: "Timeout" });
+    store.recordScreenFrame({ checkpointId: second.id, stateId: state.id, profileId: "desktop", status: "captured", captureMode: "replayed", imageDigest });
+    assert.deepEqual(store.listScreenFrames(state.id, "desktop").map((frame) => [frame.checkpointId, frame.status, frame.captureMode]),
+      [[second.id, "captured", "replayed"]]);
+    assert.equal(store.hasRenderedScreenFrame(second.id, state.id, "desktop"), true);
+
     // Constraints: a frame is unique per checkpoint/state/profile, statuses must agree with digests, references must exist.
     const frame = { checkpointId: first.id, stateId: state.id, profileId: "tablet", captureMode: "live" as const };
     assert.throws(() => store.recordScreenFrame({ ...frame, status: "captured" }), /CHECK constraint/);

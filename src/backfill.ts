@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -168,6 +169,27 @@ function backfillIdentityPlugin(appId: string) {
   };
 }
 
+// Vite bundles dependencies into `deps_temp_*` (or `deps_ssr_temp_*`) and renames it when done. Closing the server
+// mid-bundle makes Vite 6 throw an unhandled error that ends the process and writes into the removed copy, so wait
+// until no bundle has been in progress for `quietMs`, or give up after `timeoutMs`.
+export async function waitForDependencyOptimizer(cacheDir: string, timeoutMs = 30_000, quietMs = 500): Promise<boolean> {
+  const busy = () => {
+    try {
+      return readdirSync(cacheDir).some((name) => /^deps(?:_ssr)?_temp_/.test(name));
+    } catch {
+      return false;
+    }
+  };
+  const deadline = Date.now() + timeoutMs;
+  let quietSince = Date.now();
+  for (;;) {
+    if (busy()) quietSince = Date.now();
+    else if (Date.now() - quietSince >= quietMs) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((done) => setTimeout(done, 50));
+  }
+}
+
 async function startHistoricalPreview(activeRoot: string, root: string, appId: string, viteConfig: ViteConfigChoice = {}): Promise<ReplayServer> {
   const nodeModules = join(activeRoot, 'node_modules');
   if (!existsSync(nodeModules)) throw new Error('Current project node_modules are unavailable');
@@ -219,7 +241,11 @@ async function startHistoricalPreview(activeRoot: string, root: string, appId: s
     if (!address || typeof address === 'string' || address.address !== '127.0.0.1') {
       throw new Error('Historical Vite preview did not bind to loopback');
     }
-    return { previewUrl: `http://127.0.0.1:${address.port}/`, close: () => server.close().finally(restoreCwd) };
+    const close = async () => {
+      await waitForDependencyOptimizer(server.config.cacheDir);
+      await server.close();
+    };
+    return { previewUrl: `http://127.0.0.1:${address.port}/`, close: () => close().finally(restoreCwd) };
   } catch (error) {
     await server.close().catch(() => {});
     restoreCwd();

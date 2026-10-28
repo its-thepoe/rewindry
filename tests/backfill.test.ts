@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { runBackfill, materializeCheckpointSnapshot } from '../src/backfill.ts';
+import { runBackfill, materializeCheckpointSnapshot, waitForDependencyOptimizer } from '../src/backfill.ts';
 import { runCli } from '../src/cli.ts';
 import { captureBackfillVariants, type PreviewRecord } from '../src/capture.ts';
 import { WorkspaceStore, type Checkpoint } from '../src/store.ts';
@@ -358,5 +358,24 @@ test('backfill --last N replays only the newest N checkpoints, oldest first, and
     }
   } finally {
     cleanup();
+  }
+});
+
+test('closing a historical server waits for Vite to finish bundling dependencies, with a time limit', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'rewindry-optimizer-'));
+  try {
+    // No cache directory yet, or nothing in progress: closes after the quiet period.
+    assert.equal(await waitForDependencyOptimizer(join(cacheDir, 'missing'), 2_000, 50), true);
+    // A bundle in progress, then renamed into place as Vite does on commit.
+    mkdirSync(join(cacheDir, 'deps_temp_ab12cd34'));
+    const started = Date.now();
+    setTimeout(() => renameSync(join(cacheDir, 'deps_temp_ab12cd34'), join(cacheDir, 'deps')), 300);
+    assert.equal(await waitForDependencyOptimizer(cacheDir, 5_000, 100), true);
+    assert.ok(Date.now() - started >= 300);
+    // A bundle that never finishes gives up rather than hanging backfill.
+    mkdirSync(join(cacheDir, 'deps_ssr_temp_ef56'));
+    assert.equal(await waitForDependencyOptimizer(cacheDir, 300, 50), false);
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
   }
 });

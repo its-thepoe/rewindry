@@ -175,7 +175,7 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
       const start = replayStart(state.route, state.path);
       const url = sameOrigin(start.route, base);
       for (const profile of profiles) {
-        if (store.hasScreenFrame(checkpoint.id, state.id, profile.id)) continue;
+        if (store.hasRenderedScreenFrame(checkpoint.id, state.id, profile.id)) continue;
         renders.push({ state, profile, result: url
           ? await renderer.render(url.toString(), profile, start.steps)
           : { status: 'failed', reason: 'Screen route is not on the preview origin' } });
@@ -260,7 +260,7 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   }
   for (const state of skipped) {
     for (const profile of profiles) {
-      if (store.hasScreenFrame(checkpoint.id, state.id, profile.id)) continue;
+      if (store.hasRenderedScreenFrame(checkpoint.id, state.id, profile.id)) continue;
       store.recordScreenFrame({
         checkpointId: checkpoint.id, stateId: state.id, profileId: profile.id, status: 'skipped', captureMode,
         reason: `Over the ${options.maxFrames ?? MAX_FRAMES_PER_CHECKPOINT}-frame budget for one update`,
@@ -279,6 +279,11 @@ const SETTLE_SCRIPT = `new Promise((resolve) => {
   quiet = setTimeout(finish, 300);
   const limit = setTimeout(finish, 2000);
 })`;
+
+// A widget served by an older plugin still mounts in capture pages; it must not take replayed clicks or appear in frames.
+const HIDE_WIDGET_SCRIPT = `(() => {
+  for (const item of document.querySelectorAll('#rewindry-overlay-root')) item.style.setProperty('display', 'none', 'important');
+})()`;
 
 async function settle(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
@@ -374,16 +379,15 @@ export async function createFrameRenderer(): Promise<FrameRenderer> {
         const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 10_000 });
         if (!response?.ok()) return { status: 'failed', reason: `Preview page HTTP ${response?.status() ?? 'unknown'}` };
         await settle(page);
+        await page.evaluate(HIDE_WIDGET_SCRIPT);
         for (const [index, step] of path.entries()) {
           if (!await perform(page, step)) return { status: 'path_broken', reason: `Step ${index + 1} of ${path.length}: no recorded locator matched` };
           await settle(page);
         }
         if (errors.length) return { status: 'failed', reason: `Preview page error: ${errors[0]!.slice(0, 400)}` };
         if (await page.locator('vite-error-overlay').count()) return { status: 'failed', reason: 'Vite compiler error overlay is visible' };
-        await page.evaluate(`(() => {
-          for (const item of document.querySelectorAll('#rewindry-overlay-root')) item.style.visibility = 'hidden';
-          window.scrollTo(0, 0);
-        })()`);
+        await page.evaluate(HIDE_WIDGET_SCRIPT);
+        await page.evaluate('window.scrollTo(0, 0)');
         await settle(page);
         // Document coordinates at scroll 0 line up with the full-page image.
         const map = await collectComponentMap(page).catch(() => ({ components: [] as ComponentInstance[] }));

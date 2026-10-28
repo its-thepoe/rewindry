@@ -112,18 +112,32 @@ test('backfill serves old source with a Vite config named in preview.viteConfig,
   symlinkSync(join(example, 'node_modules'), join(root, 'node_modules'), 'dir');
   // Like bingo-demo: no vite.config.*, and the config reads a file from the working directory (as Tailwind finds
   // tailwind.config.js). Its plugin paints the page with that file, so frames show whether both worked.
-  writeFileSync(join(root, 'paint.css'), 'html, body { background: #0b6d65; }');
+  // It also moves Close welcome to a full-width bar at the bottom, where bingo-demo's welcome sheet has its button
+  // and where Rewindry's widget would sit if it mounted in the capture page.
+  writeFileSync(join(root, 'paint.css'), [
+    'html, body { background: #0b6d65; }',
+    '[aria-label="Welcome"] button:first-of-type { position: fixed; left: 0; right: 0; bottom: 8px; height: 48px; }',
+  ].join('\n'));
   writeFileSync(join(root, 'vite.demo.config.ts'), [
     `import { readFileSync } from 'node:fs';`,
     `import { defineConfig } from 'vite';`,
     `import react from '@vitejs/plugin-react';`,
+    `import { rewindryPreviewPlugin } from ${JSON.stringify(resolve('dist/vite-plugin.js'))};`,
     `const paint = { name: 'paint', transformIndexHtml: (html) => html.replace('</head>', \`<style>\${readFileSync('paint.css', 'utf8')}</style></head>\`) };`,
-    `export default defineConfig({ plugins: [react(), paint] });`,
+    // As in bingo-demo, the widget is hidden only by .rewindry/config.json, which checkpoint copies do not contain.
+    `export default defineConfig({ plugins: [react(), paint, rewindryPreviewPlugin('named-config-e2e')] });`,
   ].join('\n'));
   const dialogFile = join(root, 'src', 'attribution', 'ItemDialog.tsx');
   const dialogSource = readFileSync(dialogFile, 'utf8');
   const config = (preview: Record<string, unknown>) => writeFileSync(join(root, '.rewindry', 'config.json'),
-    JSON.stringify({ preview: { appId: 'named-config-e2e', route: '/?welcome=1', profiles: [{ id: 'desktop', width: 1280, height: 800 }], ...preview } }));
+    JSON.stringify({ preview: {
+      appId: 'named-config-e2e', route: '/?welcome=1', widget: false,
+      profiles: [
+        { id: 'mobile', width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 },
+        { id: 'desktop', width: 1280, height: 800 },
+      ],
+      ...preview,
+    } }));
   try {
     const before = new WorkspaceStore(root);
     before.initialize();
@@ -164,6 +178,8 @@ test('backfill serves old source with a Vite config named in preview.viteConfig,
     // Both iterations were served through the named config: its page colour is in every replayed frame.
     const frames = store.listScreenFrames(dialogState.id, 'desktop').filter((frame) => frame.imageDigest);
     assert.equal(frames.length, 2);
+    // At mobile the bottom bar is followed too: Rewindry's widget did not mount over it.
+    assert.deepEqual(store.listScreenFrames(dialogState.id, 'mobile').map((frame) => frame.status), ['captured', 'captured']);
     for (const frame of frames) {
       const image = decodePng(store.readVisual(frame.imageDigest!));
       assert.deepEqual([...image.data.subarray(((2 * image.width) + 2) * 4, ((2 * image.width) + 2) * 4 + 3)], [0x0b, 0x6d, 0x65], frame.checkpointId);
