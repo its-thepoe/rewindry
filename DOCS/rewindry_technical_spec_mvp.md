@@ -410,7 +410,7 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 
 **Known limits:**
 - Clicked states are keyed by their visible component set, so a dialog that gains a child component is relearned as a new state.
-- Repeated components are matched by occurrence order.
+- Repeated components are matched by occurrence order. The Screens page follows one occurrence at a time (an *Instance* picker appears when a screen has several) and defaults to the screen where one occurrence changed in the most iterations at one breakpoint (ties: fewer occurrences, then more captured iterations), so rows from many copies or breakpoints are never pooled.
 - Hover-only and typed-input states are not learned.
 - Only Chromium is verified.
 

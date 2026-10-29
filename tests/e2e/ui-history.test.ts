@@ -171,6 +171,22 @@ test('a dialog learned once keeps its own per-breakpoint history after the brows
         if (shots) await page.screenshot({ path: join(shots, `history-compare-${viewport.width}.png`), fullPage: true });
         assert.deepEqual(await page.locator('.stage-items figcaption strong').allInnerTexts(), ['Iteration 2', 'Iteration 3']);
 
+        // A component rendered several times is followed one instance at a time: each iteration appears once.
+        await component.selectOption({ label: await component.locator('option', { hasText: /^Cell · / }).innerText() });
+        await page.getByLabel('Breakpoint').selectOption('mobile');
+        const instance = page.getByLabel('Instance');
+        await instance.waitFor();
+        assert.deepEqual(await instance.locator('option').allInnerTexts(), ['1 of 3', '2 of 3', '3 of 3']);
+        for (const value of ['0', '2']) {
+          await instance.selectOption(value);
+          await page.waitForFunction(() => document.querySelectorAll('.filmstrip .frame').length > 0);
+          const iterations = await cards.locator('span').allInnerTexts();
+          assert.equal(new Set(iterations).size, iterations.length, `instance ${value}: ${iterations.join(', ')}`);
+        }
+        await component.selectOption({ label: await component.locator('option', { hasText: 'ItemDialog' }).innerText() });
+        // A single instance needs no picker.
+        await page.locator('#instance-field').waitFor({ state: 'hidden' });
+
         // Screen zoom, then screen at one breakpoint.
         await page.getByRole('button', { name: 'Screen', exact: true }).click();
         await page.getByLabel('Screen').selectOption(dialogState.id);

@@ -6,6 +6,8 @@ const elements = {
   componentField: document.getElementById('component-field'),
   componentSelect: document.getElementById('component-select'),
   stateSelect: document.getElementById('state-select'),
+  instanceField: document.getElementById('instance-field'),
+  instanceSelect: document.getElementById('instance-select'),
   profileSelect: document.getElementById('profile-select'),
   note: document.getElementById('note'),
   stageMessage: document.getElementById('stage-message'),
@@ -19,6 +21,7 @@ const state = {
   zoom: 'component',
   componentKey: '',
   stateId: '',
+  occurrence: 0,
   profileId: '',
   records: [],
   items: [],
@@ -106,11 +109,27 @@ async function loadRecords() {
     const { versions } = await json(`/api/history/components?key=${encodeURIComponent(state.componentKey)}`);
     if (request !== state.request) return;
     state.records = versions;
-    // Where a component appears on several screens, default to the one with the most real changes.
-    const perState = new Map();
-    for (const version of versions) if (!version.unchangedFrom) perState.set(version.stateId, (perState.get(version.stateId) ?? 0) + 1);
-    const states = [...new Set(versions.map((version) => version.stateId))]
-      .sort((a, b) => (perState.get(b) ?? 0) - (perState.get(a) ?? 0));
+    // Where a component appears on several screens, default to the one where it changed in the most iterations.
+    // Counted per instance and breakpoint, in iterations rather than rows, so a page that draws many copies
+    // (a catalog) does not outrank real history. On a tie, prefer a screen that draws the component fewer times, then more captures.
+    const screens = new Map();
+    for (const version of versions) {
+      const screen = screens.get(version.stateId) ?? { changed: new Map(), occurrences: new Set(), iterations: new Set() };
+      screens.set(version.stateId, screen);
+      screen.occurrences.add(version.occurrence);
+      screen.iterations.add(version.checkpointId);
+      if (version.unchangedFrom) continue;
+      const series = `${version.occurrence}:${version.profileId}`;
+      screen.changed.set(series, (screen.changed.get(series) ?? new Set()).add(version.checkpointId));
+    }
+    const score = (stateId) => {
+      const screen = screens.get(stateId);
+      return [Math.max(0, ...[...screen.changed.values()].map((changed) => changed.size)), -screen.occurrences.size, screen.iterations.size];
+    };
+    const states = [...screens.keys()].sort((a, b) => {
+      const [left, right] = [score(a), score(b)];
+      return right[0] - left[0] || right[1] - left[1] || right[2] - left[2];
+    });
     state.stateId = setOptions(elements.stateSelect, states.map((id) => ({ value: id, label: stateName(id) })),
       states.includes(state.stateId) ? state.stateId : states[0]);
   } else {
@@ -121,8 +140,22 @@ async function loadRecords() {
     if (request !== state.request) return;
     state.records = frames;
   }
+  updateInstances();
   updateProfiles();
   render();
+}
+
+// A component rendered more than once on a screen (list items, board cells) is followed one instance at a time,
+// in page order, so its versions are one copy's history rather than every copy at the same iteration.
+function updateInstances() {
+  const occurrences = state.zoom === 'component'
+    ? [...new Set(state.records.filter((record) => record.stateId === state.stateId).map((record) => record.occurrence))].sort((a, b) => a - b)
+    : [];
+  const selected = setOptions(elements.instanceSelect, occurrences.map((occurrence) => ({
+    value: String(occurrence), label: `${occurrence + 1} of ${occurrences.length}`,
+  })), String(state.occurrence));
+  state.occurrence = Number(selected || 0);
+  elements.instanceField.hidden = occurrences.length < 2;
 }
 
 // Breakpoints offered are the ones this screen (and component) actually has.
@@ -135,7 +168,8 @@ function updateProfiles() {
 
 function render() {
   const inScope = state.records.filter((record) =>
-    (state.zoom === 'screen' || record.stateId === state.stateId) && (!state.profileId || record.profileId === state.profileId));
+    (state.zoom === 'screen' || (record.stateId === state.stateId && record.occurrence === state.occurrence)) &&
+    (!state.profileId || record.profileId === state.profileId));
   const changed = inScope.filter((record) => record.imageUrl && !record.unchangedFrom);
   const unchanged = inScope.filter((record) => record.unchangedFrom).length;
   const broken = inScope.filter((record) => record.status === 'path_broken').length;
@@ -269,14 +303,22 @@ elements.zoomComponent.addEventListener('click', () => setZoom('component'));
 elements.zoomScreen.addEventListener('click', () => setZoom('screen'));
 elements.componentSelect.addEventListener('change', () => {
   state.componentKey = elements.componentSelect.value;
+  state.occurrence = 0;
   state.selected = [];
   void loadRecords();
 });
 elements.stateSelect.addEventListener('change', () => {
   state.stateId = elements.stateSelect.value;
+  state.occurrence = 0;
   state.selected = [];
   if (state.zoom === 'screen') return void loadRecords();
+  updateInstances();
   updateProfiles();
+  render();
+});
+elements.instanceSelect.addEventListener('change', () => {
+  state.occurrence = Number(elements.instanceSelect.value);
+  state.selected = [];
   render();
 });
 elements.profileSelect.addEventListener('change', () => {

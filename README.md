@@ -60,7 +60,7 @@ Rewindry can keep a separate history for every screen and React component you wo
 - If a saved click no longer matches anything, that screen is marked unreachable for the update and keeps its earlier images. The next time you open it in a browser, the path is relearned.
 
 **Looking back.** Run `rewindry viewer` and choose **Screens**:
-- *Component* shows one component's real versions.
+- *Component* shows one component's real versions. It opens on the screen where one copy of the component changed in the most iterations at one breakpoint. A component drawn several times on a screen, such as list items or board cells, is followed one *Instance* at a time, in page order.
 - *Screen* shows a whole screen's versions.
 - *Breakpoint* narrows either view to one size.
 - Compare puts two versions side by side.
