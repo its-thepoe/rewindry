@@ -6,7 +6,7 @@ import type { Page } from 'playwright';
 export type ComponentBox = { x: number; y: number; width: number; height: number };
 export type ComponentInstance = { key: string; file: string; component: string; occurrence: number; box: ComponentBox };
 export type ComponentMap = { components: ComponentInstance[]; unattributed: number; reason?: 'react-root-not-found' };
-export type ComponentMapOptions = { roots?: unknown[]; origin?: string; scrollX?: number; scrollY?: number };
+export type ComponentMapOptions = { roots?: unknown[]; origin?: string; scrollX?: number; scrollY?: number; viewportWidth?: number; viewportHeight?: number };
 
 let script: string | undefined;
 

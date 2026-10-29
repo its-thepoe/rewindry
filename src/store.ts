@@ -289,7 +289,7 @@ export class WorkspaceStore {
     db.exec("BEGIN IMMEDIATE");
     try {
       db.prepare("INSERT INTO checkpoints (id, kind, created_at, digest, turn_key, manifest_path) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(checkpoint.id, kind, checkpoint.createdAt, digest, turnKey ?? null, manifestPath);
+        .run(checkpoint.id, kind, checkpoint.createdAt, digest, turnKey ?? null, `manifests/${checkpoint.id}.json`);
       const insertFile = db.prepare("INSERT INTO checkpoint_files (checkpoint_id, path, digest, size) VALUES (?, ?, ?, ?)");
       for (const file of checkpoint.files) insertFile.run(checkpoint.id, file.path, file.digest, file.size);
       db.exec("COMMIT");
@@ -333,11 +333,12 @@ export class WorkspaceStore {
     for (const row of rows) {
       const previous = join(previousRoot, ".rewindry", "manifests", `${row.id}.json`);
       const current = join(this.storage, "manifests", `${row.id}.json`);
-      if (row.manifest_path !== previous && row.manifest_path !== current) {
+      const relativePath = `manifests/${row.id}.json`;
+      if (row.manifest_path !== previous && row.manifest_path !== current && row.manifest_path !== relativePath) {
         throw new Error("Checkpoint manifest path cannot be rebased");
       }
       this.verifyManifest(this.readManifestAt(current, row.id));
-      if (row.manifest_path !== current) updates.push({ id: row.id, path: current });
+      if (row.manifest_path !== relativePath) updates.push({ id: row.id, path: relativePath });
     }
     if (!updates.length) return 0;
     db.exec("BEGIN IMMEDIATE");
@@ -474,6 +475,27 @@ export class WorkspaceStore {
     return new Map(rows.map((row) => [row.state_id, row.at]));
   }
 
+  // Learned screens retired from capture: still marked broken, and their path failed at every breakpoint in each of the
+  // last `attempts` live updates that tried them. Visiting the screen again relearns its path and makes it active.
+  retiredStateIds(attempts = 3): Set<string> {
+    const rows = this.database().prepare(`
+      SELECT ui_states.id AS stateId, MAX(screen_frames.status IN ('captured', 'unchanged')) AS rendered
+      FROM ui_states
+        JOIN screen_frames ON screen_frames.state_id = ui_states.id
+        JOIN checkpoints ON checkpoints.id = screen_frames.checkpoint_id
+      WHERE ui_states.status = 'path_broken' AND screen_frames.capture_mode = 'live'
+        AND screen_frames.status IN ('captured', 'unchanged', 'path_broken')
+      GROUP BY ui_states.id, checkpoints.rowid
+      ORDER BY ui_states.id, checkpoints.rowid DESC`).all() as { stateId: string; rendered: number }[];
+    const recent = new Map<string, number[]>();
+    for (const row of rows) {
+      const list = recent.get(row.stateId) ?? [];
+      if (list.length < attempts) list.push(row.rendered);
+      recent.set(row.stateId, list);
+    }
+    return new Set([...recent].filter(([, list]) => list.length === attempts && list.every((rendered) => !rendered)).map(([id]) => id));
+  }
+
   // A frame with an image (captured or unchanged) is final; unreachable, failed and skipped frames are retried by a later run.
   hasRenderedScreenFrame(checkpointId: string, stateId: string, profileId: string): boolean {
     return !!this.database().prepare(`SELECT 1 FROM screen_frames WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ?
@@ -516,10 +538,14 @@ export class WorkspaceStore {
     profiles: string[];
   } {
     const db = this.database();
-    const states = db.prepare(`SELECT state_id AS stateId, COUNT(*) AS frames, SUM(status = 'captured') AS changed
+    // `changed` counts iterations with a real change, not rows: breakpoints, screens and repeated copies of a
+    // component would otherwise each add to it.
+    const states = db.prepare(`SELECT state_id AS stateId, COUNT(*) AS frames,
+        COUNT(DISTINCT CASE WHEN status = 'captured' THEN checkpoint_id END) AS changed
       FROM screen_frames GROUP BY state_id`).all() as { stateId: string; frames: number; changed: number }[];
     const components = db.prepare(`
-      SELECT component_key AS componentKey, COUNT(*) AS versions, SUM(unchanged_from IS NULL) AS changed,
+      SELECT component_key AS componentKey, COUNT(*) AS versions,
+        COUNT(DISTINCT CASE WHEN unchanged_from IS NULL THEN checkpoint_id END) AS changed,
         COUNT(DISTINCT state_id) AS states, MAX(CASE WHEN unchanged_from IS NULL THEN checkpoints.rowid END) AS lastChangedRow
       FROM component_versions JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
       GROUP BY component_key ORDER BY lastChangedRow DESC, component_key
@@ -738,9 +764,16 @@ export class WorkspaceStore {
     const row = this.database().prepare("SELECT manifest_path FROM checkpoints WHERE id = ?").get(id) as
       | { manifest_path: string } | undefined;
     if (!row) throw new Error("Checkpoint not found");
-    const expected = join(this.storage, "manifests", `${id}.json`);
-    if (row.manifest_path !== expected) throw new Error("Manifest unavailable");
-    return this.readManifestAt(expected, id);
+    if (!this.manifestPathMatches(row.manifest_path, id)) throw new Error("Manifest unavailable");
+    return this.readManifestAt(join(this.storage, "manifests", `${id}.json`), id);
+  }
+
+  // The manifest is always read from this store's own manifests folder. The recorded path is relative
+  // (`manifests/<id>.json`); older checkpoints recorded an absolute path, accepted wherever the project
+  // now lives so a copied or moved store keeps working.
+  private manifestPathMatches(recorded: string, id: string): boolean {
+    if (recorded === `manifests/${id}.json`) return true;
+    return isAbsolute(recorded) && recorded.endsWith(`${sep}.rewindry${sep}manifests${sep}${id}.json`);
   }
 
   private readManifestAt(path: string, id: string): Manifest {

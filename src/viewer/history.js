@@ -103,7 +103,7 @@ async function loadRecords() {
   renderEmpty('Loading versions…');
   if (state.zoom === 'component') {
     state.componentKey = setOptions(elements.componentSelect, state.summary.components.map((item) => ({
-      value: item.key, label: `${item.component} · ${item.file} (${plural(item.changed, 'version')})`,
+      value: item.key, label: `${item.component} · ${item.file} (changed in ${plural(item.changed, 'iteration')})`,
     })), state.componentKey);
     if (!state.componentKey) return renderEmpty('No components captured yet.');
     const { versions } = await json(`/api/history/components?key=${encodeURIComponent(state.componentKey)}`);
@@ -134,7 +134,7 @@ async function loadRecords() {
       states.includes(state.stateId) ? state.stateId : states[0]);
   } else {
     state.stateId = setOptions(elements.stateSelect, state.summary.states.map((item) => ({
-      value: item.id, label: `${stateName(item.id)} (${plural(item.changed, 'version')})`,
+      value: item.id, label: `${stateName(item.id)} (changed in ${plural(item.changed, 'iteration')})`,
     })), state.stateId);
     const { frames } = await json(`/api/history/frames?state=${encodeURIComponent(state.stateId)}`);
     if (request !== state.request) return;

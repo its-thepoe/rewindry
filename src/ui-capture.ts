@@ -156,7 +156,9 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
   if (!store.listUiStates().some((state) => state.route === route && state.componentSet === LANDING_SET)) {
     store.upsertUiState({ origin: 'configured', route, path: [], componentSet: LANDING_SET });
   }
-  const states = store.listUiStates();
+  // Screens whose path kept failing are left out until a browser visit relearns them; the landing page always stays.
+  const retired = store.retiredStateIds();
+  const states = store.listUiStates().filter((state) => !retired.has(state.id) || state.componentSet === LANDING_SET);
   const landing = states.find((state) => state.route === route && state.componentSet === LANDING_SET)!;
   const { selected, skipped } = selectStates(states, changedFiles(store, checkpoint), landing.id, maxStates, store.lastRenderedTimes());
   summary.states = selected.length;

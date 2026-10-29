@@ -96,3 +96,25 @@ test('reports components it cannot attribute and pages without a React root', ()
   assert.deepEqual(map, { components: [], unattributed: 2 });
   assert.deepEqual(collect({ roots: [], origin: ORIGIN, scrollX: 0, scrollY: 0 }), { components: [], unattributed: 0, reason: 'react-root-not-found' });
 });
+
+test('a sheet\'s empty full-viewport backdrop is left out of its box, unless it is all the component draws', () => {
+  const sheet = component('CashOutSheet');
+  const overlay = component('Overlay');
+  const scrim = component('Scrim');
+  const fixed = (left: number, top: number, width: number, height: number, extra: Record<string, unknown> = {}) =>
+    ({ ...host(left, top, width, height), style: { position: 'fixed' }, childElementCount: 0, textContent: '', ...extra });
+  // Like bingo-demo's BingoSheet: an empty fixed backdrop beside the panel that holds the content.
+  link(sheet,
+    { tag: 5, stateNode: fixed(0, 0, 390, 844), _debugOwner: sheet, _debugStack: stack('src/BingoSheet.tsx') },
+    { tag: 5, stateNode: fixed(0, 500, 390, 344, { childElementCount: 3, textContent: 'Cash out' }), _debugOwner: sheet, _debugStack: stack('src/BingoSheet.tsx') });
+  // A full-screen overlay that holds its own content is the component itself, so it keeps the whole viewport.
+  link(overlay, { tag: 5, stateNode: fixed(0, 0, 390, 844, { childElementCount: 1, textContent: 'Welcome' }), _debugOwner: overlay, _debugStack: stack('src/Overlay.tsx') });
+  // A component that is only a backdrop keeps it rather than disappearing.
+  link(scrim, { tag: 5, stateNode: fixed(0, 0, 390, 844), _debugOwner: scrim, _debugStack: stack('src/Scrim.tsx') });
+  for (const fiber of [sheet, overlay, scrim]) Object.assign(fiber, { _debugOwner: sheet, _debugStack: stack('src/main.tsx') });
+  const map = collect({ roots: [link({ tag: 3 }, sheet, overlay, scrim)], origin: ORIGIN, scrollX: 0, scrollY: 0, viewportWidth: 390, viewportHeight: 844 });
+  const boxes = Object.fromEntries(map.components.map((item) => [item.component, item.box]));
+  assert.deepEqual(boxes.CashOutSheet, { x: 0, y: 500, width: 390, height: 344 });
+  assert.deepEqual(boxes.Overlay, { x: 0, y: 0, width: 390, height: 844 });
+  assert.deepEqual(boxes.Scrim, { x: 0, y: 0, width: 390, height: 844 });
+});

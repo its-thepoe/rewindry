@@ -392,7 +392,7 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 - Learned states are capped at 200. The cap evicts the least recently seen learned state that has no frames; history is never deleted to make room.
 - Rewindry's own capture contexts set `__rewindryCapture`, so they never teach the recorder.
 
-**Attribution:** `component-collector.js` runs in the captured page. It walks React development fibers from each root and credits each component to the first stack frame after React's own `jsxDEV`/`createElement` (or JSX wrapper) frames in an owned fiber's `_debugStack` (React 19). On React 18 it uses the owned fiber's `_debugSource.fileName`, an absolute path that the capture and the learning endpoint make relative to the served root; files outside it are dropped. It returns per-instance document boxes (including portal content) and occurrence indexes. Production builds contain none of this.
+**Attribution:** `component-collector.js` runs in the captured page. It walks React development fibers from each root and credits each component to the first stack frame after React's own `jsxDEV`/`createElement` (or JSX wrapper) frames in an owned fiber's `_debugStack` (React 19). On React 18 it uses the owned fiber's `_debugSource.fileName`, an absolute path that the capture and the learning endpoint make relative to the served root; files outside it are dropped. It returns per-instance document boxes (including portal content) and occurrence indexes. An empty `position: fixed` element covering the whole viewport (a sheet or dialog backdrop) is left out of its component's box unless it is all that component draws, so the crop is the panel and the page behind the backdrop cannot create new versions. Production builds contain none of this.
 
 **Capture:**
 - After a checkpoint's legacy capture succeeds, the runtime queues per-screen capture, one browser at a time.
@@ -410,6 +410,9 @@ The browser screenshot is a **record of one finalised iteration**, not a recordi
 
 **Known limits:**
 - Clicked states are keyed by their visible component set, so a dialog that gains a child component is relearned as a new state.
+- Retirement: a learned state still marked `path_broken` whose path failed at every breakpoint in each of its last three live updates is left out of live and replayed selection (not rendered, not counted as skipped). The landing page is never retired. Any later visit that reports the state again makes it `active`.
+- Menu counts: `/api/history` reports `changed` as the number of iterations with a real change, for screens (captured frames) and components (changed crops), not the number of rows across breakpoints, screens and copies.
+- Manifest paths: new checkpoints record `manifests/<id>.json`, relative to `.rewindry`. Manifests are always read from the store's own `manifests/` folder; an absolute path recorded by earlier versions is accepted when it names `.rewindry/manifests/<id>.json`, so a copied or moved store reads its history without rebasing. `setup --rebind-moved` rewrites old rows to the relative form. No schema change.
 - Repeated components are matched by occurrence order. The Screens page follows one occurrence at a time (an *Instance* picker appears when a screen has several) and defaults to the screen where one occurrence changed in the most iterations at one breakpoint (ties: fewer occurrences, then more captured iterations), so rows from many copies or breakpoints are never pooled.
 - Hover-only and typed-input states are not learned.
 - Only Chromium is verified.

@@ -289,8 +289,9 @@ test('screen history API is authenticated, GET-only and serves only referenced v
   const box = { x: 10, y: 20, width: 100, height: 50 };
   store.recordScreenFrame({ checkpointId: first.id, stateId: dialog.id, profileId: 'mobile', status: 'captured', captureMode: 'live', imageDigest: frameA,
     components: [{ componentKey: 'src/Dialog.tsx#Dialog', occurrence: 0, cropDigest: cropA, box }] });
+  // A second copy of the dialog changes in the same iteration: counts are per iteration, not per copy.
   store.recordScreenFrame({ checkpointId: second.id, stateId: dialog.id, profileId: 'mobile', status: 'captured', captureMode: 'live', imageDigest: frameB,
-    components: [{ componentKey: 'src/Dialog.tsx#Dialog', occurrence: 0, cropDigest: cropB, box }] });
+    components: [{ componentKey: 'src/Dialog.tsx#Dialog', occurrence: 0, cropDigest: cropB, box }, { componentKey: 'src/Dialog.tsx#Dialog', occurrence: 1, cropDigest: cropA, box }] });
   store.recordScreenFrame({ checkpointId: second.id, stateId: dialog.id, profileId: 'desktop', status: 'path_broken', captureMode: 'live', reason: 'Step 2 of 2: no recorded locator matched' });
   const viewer = new ViewerServer(root, store);
   try {
@@ -315,7 +316,7 @@ test('screen history API is authenticated, GET-only and serves only referenced v
     };
     assert.deepEqual(summary.profiles, ['desktop', 'mobile']);
     assert.deepEqual(summary.states, [{ id: dialog.id, route: '/?welcome=1', label: '/?welcome=1 · after “Item 2”', origin: 'learned', status: 'active', steps: 2, frames: 3, changed: 2 }]);
-    assert.deepEqual(summary.components, [{ key: 'src/Dialog.tsx#Dialog', file: 'src/Dialog.tsx', component: 'Dialog', versions: 2, changed: 2, states: 1 }]);
+    assert.deepEqual(summary.components, [{ key: 'src/Dialog.tsx#Dialog', file: 'src/Dialog.tsx', component: 'Dialog', versions: 3, changed: 2, states: 1 }]);
 
     const frames = await (await get(`/api/history/frames?state=${dialog.id}&profile=mobile`)).json() as { frames: Record<string, unknown>[] };
     assert.deepEqual(frames.frames.map((frame) => [frame.iteration, frame.kind, frame.status, frame.imageUrl]), [
@@ -327,8 +328,8 @@ test('screen history API is authenticated, GET-only and serves only referenced v
       status: 'path_broken', captureMode: 'live', reason: 'Step 2 of 2: no recorded locator matched',
     });
     const versions = await (await get(`/api/history/components?key=${encodeURIComponent('src/Dialog.tsx#Dialog')}&state=${dialog.id}&profile=mobile`)).json() as { versions: Record<string, unknown>[] };
-    assert.deepEqual(versions.versions.map((version) => [version.iteration, version.imageUrl, version.box]), [
-      [1, `/api/visuals/${cropA}.png`, box], [2, `/api/visuals/${cropB}.png`, box],
+    assert.deepEqual(versions.versions.map((version) => [version.iteration, version.occurrence, version.imageUrl, version.box]), [
+      [1, 0, `/api/visuals/${cropA}.png`, box], [2, 0, `/api/visuals/${cropB}.png`, box], [2, 1, `/api/visuals/${cropA}.png`, box],
     ]);
     assert.deepEqual((await (await get('/api/history/components?key=src%2FOther.tsx%23Other')).json()), { versions: [] });
 

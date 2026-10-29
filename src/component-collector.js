@@ -6,6 +6,9 @@
   const origin = options?.origin ?? location.origin;
   const scrollX = options?.scrollX ?? window.scrollX;
   const scrollY = options?.scrollY ?? window.scrollY;
+  // Without a known viewport nothing counts as a backdrop.
+  const viewportWidth = options?.viewportWidth ?? (typeof window === 'object' ? window.innerWidth : Infinity);
+  const viewportHeight = options?.viewportHeight ?? (typeof window === 'object' ? window.innerHeight : Infinity);
 
   const roots = options?.roots ?? (() => {
     const found = new Set();
@@ -58,11 +61,24 @@
     left: Math.min(a.left, b.left), top: Math.min(a.top, b.top),
     right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom),
   };
+  // An empty fixed element over the whole viewport is a sheet or dialog backdrop: it shows the page behind it,
+  // so it is left out of the component's box unless the component draws nothing else.
+  const isBackdrop = (node, rect) => {
+    if (rect.left > 0 || rect.top > 0 || rect.right < viewportWidth || rect.bottom < viewportHeight) return false;
+    if (node.childElementCount > 0 || (node.textContent ?? '').trim()) return false;
+    const position = typeof getComputedStyle === 'function' ? getComputedStyle(node).position : node.style?.position;
+    return position === 'fixed';
+  };
   const visit = (fiber) => {
     // Reserve the slot before children so components stay in document (pre-)order.
     const slot = COMPONENT_TAGS.has(fiber.tag) ? ordered.push(null) - 1 : -1;
     let bounds = null;
-    for (let child = fiber.child; child; child = child.sibling) bounds = union(bounds, visit(child));
+    let backdrops = null;
+    for (let child = fiber.child; child; child = child.sibling) {
+      const inner = visit(child);
+      bounds = union(bounds, inner.bounds);
+      backdrops = union(backdrops, inner.backdrops);
+    }
     const owner = fiber._debugOwner;
     if (owner && !ownerFiles.has(owner)) {
       const file = fileFromStack(fiber._debugStack?.stack) ?? fileFromSource(fiber._debugSource);
@@ -70,10 +86,13 @@
     }
     if (HOST_TAGS.has(fiber.tag) && typeof fiber.stateNode?.getBoundingClientRect === 'function') {
       const rect = fiber.stateNode.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) bounds = union(bounds, rect);
+      if (rect.width > 0 && rect.height > 0) {
+        if (isBackdrop(fiber.stateNode, rect)) backdrops = union(backdrops, rect);
+        else bounds = union(bounds, rect);
+      }
     }
-    if (slot >= 0) ordered[slot] = { fiber, bounds };
-    return bounds;
+    if (slot >= 0) ordered[slot] = { fiber, bounds: bounds ?? backdrops };
+    return { bounds, backdrops };
   };
   for (const root of roots) visit(root);
 

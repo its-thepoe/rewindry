@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -517,4 +517,37 @@ test("the UI state cap evicts the least recently seen state without history and 
     assert.equal(store.listUiStates().length, 2);
     assert.equal(learn("A").id, kept.id, "an existing state still merges at the cap");
   } finally { cleanup(); }
+});
+
+test("manifest paths are recorded relative to the store, so a copied project reads old and new checkpoints", () => {
+  const { root, store, cleanup } = fixture();
+  const copy = mkdtempSync(join(tmpdir(), "rewindry-store-copy-"));
+  try {
+    mkdirSync(join(root, "src"));
+    writeFileSync(join(root, "src", "app.ts"), "one");
+    const legacy = store.snapshot("baseline")!;
+    writeFileSync(join(root, "src", "app.ts"), "two");
+    const current = store.snapshot("agent_turn", "turn-2")!;
+    let db = new DatabaseSync(join(root, ".rewindry", "index.sqlite"));
+    assert.deepEqual(db.prepare("SELECT manifest_path AS path FROM checkpoints ORDER BY rowid").all().map((row) => (row as { path: string }).path),
+      [`manifests/${legacy.id}.json`, `manifests/${current.id}.json`]);
+    // Checkpoints written by earlier versions recorded the absolute path in the original project.
+    db.prepare("UPDATE checkpoints SET manifest_path = ? WHERE id = ?").run(join(root, ".rewindry", "manifests", `${legacy.id}.json`), legacy.id);
+    db.close();
+
+    cpSync(root, copy, { recursive: true });
+    const copied = new WorkspaceStore(copy);
+    copied.initialize();
+    assert.equal(copied.readFile(legacy.id, "src/app.ts").toString(), "one");
+    assert.equal(copied.readFile(current.id, "src/app.ts").toString(), "two");
+
+    // Any other recorded path is refused.
+    db = new DatabaseSync(join(copy, ".rewindry", "index.sqlite"));
+    db.prepare("UPDATE checkpoints SET manifest_path = ? WHERE id = ?").run(`manifests/${current.id}.json/../${legacy.id}.json`, current.id);
+    db.close();
+    assert.throws(() => copied.readFile(current.id, "src/app.ts"), /Manifest unavailable/);
+  } finally {
+    cleanup();
+    rmSync(copy, { recursive: true, force: true });
+  }
 });

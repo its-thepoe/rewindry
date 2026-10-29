@@ -249,6 +249,51 @@ test('a stored route that would leave the preview origin fails only its own fram
   }
 });
 
+test('a screen whose path failed in three live updates in a row is retired until a browser visit relearns it', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-ui-retire-'));
+  const preview = await previewServer();
+  try {
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src', 'App.tsx'), 'app v1');
+    writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v1');
+    const store = new WorkspaceStore(root);
+    store.initialize();
+    const set = componentSetHash(['src/App.tsx#App', 'src/ItemDialog.tsx#ItemDialog']);
+    const learn = (name: string) => store.upsertUiState({ origin: 'learned', route: '/', componentSet: set, components: ['src/App.tsx#App', 'src/ItemDialog.tsx#ItemDialog'],
+      path: [{ action: 'click', target: [{ by: 'role', role: 'button', name, index: 0 }] }] });
+    const dialog = learn('Item 2');
+    let scene: Scene = { color: [255, 255, 255], dialogColor: [200, 0, 0], broken: true };
+    const calls: string[] = [];
+    const options = { previewUrl: preview.url, appId: 'ui-test', profiles: [{ id: 'mobile', width: 20, height: 10 }], renderer: fakeRenderer(() => scene, calls) };
+    const update = async (label: string) => {
+      writeFileSync(join(root, 'src', 'ItemDialog.tsx'), label);
+      calls.length = 0;
+      return captureUiHistory(root, store, store.snapshot('unattributed_group')!, options);
+    };
+    for (const label of ['dialog v2', 'dialog v3', 'dialog v4']) {
+      assert.equal((await update(label)).pathBroken, 1, label);
+      assert.ok(calls.includes('/+dialog@mobile'), label);
+    }
+    assert.deepEqual([...store.retiredStateIds()], [dialog.id]);
+    // Retired: not rendered, not skipped, and the landing page still is.
+    const retired = await update('dialog v5');
+    assert.deepEqual([retired.pathBroken, retired.skipped], [0, 0]);
+    assert.deepEqual(calls, ['/@mobile']);
+    assert.equal(store.listUiStates().find((state) => state.id === dialog.id)!.status, 'path_broken');
+
+    // Visiting the screen again relearns a working path; it is captured on the next update.
+    scene = { ...scene, broken: false };
+    assert.equal(learn('Item 2 (new)').status, 'active');
+    assert.equal(store.retiredStateIds().size, 0);
+    await update('dialog v6');
+    assert.ok(calls.includes('/+dialog@mobile'));
+    assert.equal(store.listScreenFrames(dialog.id, 'mobile').at(-1)!.status, 'captured');
+  } finally {
+    preview.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const instance = (key: string, x: number, y: number, width: number, height: number, occurrence = 0) =>
   ({ key, file: key.split('#')[0]!, component: key.split('#')[1]!, occurrence, box: { x, y, width, height } });
 

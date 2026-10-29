@@ -54,12 +54,13 @@ Rewindry can keep a separate history for every screen and React component you wo
 **How it captures, with no browser open.** After each update (an agent turn or a group of edits), Rewindry renders screens in a background browser:
 - It renders your landing page, plus every learned screen that uses a file you changed.
 - It replays the saved clicks and screenshots each screen at every breakpoint.
-- It cuts out every React component it can attribute to a source file.
+- It cuts out every React component it can attribute to a source file. A sheet or dialog is cut to its own panel: an empty full-screen backdrop behind it is left out, so changes to the page behind it don't count as new versions.
 - Identical screenshots and crops are stored once and recorded as unchanged. A history therefore shows only real visual changes.
 - At most 36 screenshots are taken per update. Screens over that limit are recorded as skipped.
-- If a saved click no longer matches anything, that screen is marked unreachable for the update and keeps its earlier images. The next time you open it in a browser, the path is relearned.
+- If a saved click no longer matches anything, that screen is marked unreachable for the update and keeps its earlier images. The next time you open it in a browser, the path is relearned. A screen that could not be reached in three updates in a row is retired: it is no longer replayed, and keeps its history, until you open it in a browser again.
 
 **Looking back.** Run `rewindry viewer` and choose **Screens**:
+- The menus show how many iterations each component and screen changed in.
 - *Component* shows one component's real versions. It opens on the screen where one copy of the component changed in the most iterations at one breakpoint. A component drawn several times on a screen, such as list items or board cells, is followed one *Instance* at a time, in page order.
 - *Screen* shows a whole screen's versions.
 - *Breakpoint* narrows either view to one size.
