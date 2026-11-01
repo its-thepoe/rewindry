@@ -253,6 +253,12 @@ export async function captureUiHistory(root: string, store: WorkspaceStore, chec
       summary.failed++;
     }
   }
+  // Checkpoints are not always rendered in order (backfill runs after live capture), so each rendered series is
+  // relinked: an image identical to the one before it in checkpoint order counts as unchanged.
+  for (const key of new Set(renders.map((item) => `${item.state.id}\n${item.profile.id}`))) {
+    const [stateId, profileId] = key.split('\n') as [string, string];
+    store.relinkScreenHistory(stateId, profileId);
+  }
   // A state is broken only if no profile could follow its path; a working profile keeps it active.
   // Status reflects the current app too, so only live captures mark paths broken or repaired.
   for (const state of captureMode === 'live' ? selected : []) {

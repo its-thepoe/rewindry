@@ -113,6 +113,14 @@ test('ordinary use in a browser with the widget hidden teaches Rewindry how to r
     assert.equal(states().length, 3);
     await capture.close();
 
+    // A tab whose animation frames are paused (background tab, hidden pane) still learns.
+    const paused = await browser.newContext();
+    await paused.addInitScript(() => { window.requestAnimationFrame = () => 0; });
+    const pausedPage = await paused.newPage();
+    await pausedPage.goto(`${base}?screen=paused`);
+    await until(states, (value) => value.some((state) => state.route === '/attribution.html?screen=paused'), 'a state learned without animation frames');
+    await paused.close();
+
     // A stored path is replayable: following its first locator in a fresh page reaches the dialog.
     const replay = await browser.newPage();
     await replay.goto(base);

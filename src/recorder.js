@@ -101,7 +101,10 @@
       observer.disconnect();
       clearTimeout(quiet);
       clearTimeout(limit);
-      requestAnimationFrame(() => requestAnimationFrame(resolve));
+      // Wait for paint, but not forever: browsers pause animation frames in background tabs and hidden panes.
+      // Wait for paint, but not forever: browsers pause animation frames in background tabs and hidden panes.
+      const painted = setTimeout(resolve, 200);
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(painted); resolve(); }));
     };
     const observer = new MutationObserver(() => {
       clearTimeout(quiet);

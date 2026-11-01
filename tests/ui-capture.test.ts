@@ -294,6 +294,47 @@ test('a screen whose path failed in three live updates in a row is retired until
   }
 });
 
+test('identical images rendered out of checkpoint order are relinked, so backfill never adds duplicate versions', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-ui-relink-'));
+  const preview = await previewServer();
+  try {
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src', 'App.tsx'), 'app v1');
+    writeFileSync(join(root, 'src', 'ItemDialog.tsx'), 'dialog v1');
+    const store = new WorkspaceStore(root);
+    store.initialize();
+    const dialog = store.upsertUiState({ origin: 'learned', route: '/', componentSet: componentSetHash(['src/App.tsx#App', 'src/ItemDialog.tsx#ItemDialog']),
+      components: ['src/App.tsx#App', 'src/ItemDialog.tsx#ItemDialog'], path: [{ action: 'click', target: [{ by: 'role', role: 'button', name: 'Item 2', index: 0 }] }] });
+    let scene: Scene = { color: [255, 255, 255], dialogColor: [200, 0, 0] };
+    const options = { previewUrl: preview.url, appId: 'ui-test', profiles: [{ id: 'mobile', width: 20, height: 10 }], renderer: fakeRenderer(() => scene, []) };
+    const checkpoints = ['dialog v2', 'dialog v3', 'dialog v4', 'dialog v5'].map((label) => {
+      writeFileSync(join(root, 'src', 'ItemDialog.tsx'), label);
+      return store.snapshot('unattributed_group')!;
+    });
+    // Live capture saw only the newest; backfill then renders the older ones, oldest first.
+    // The second-oldest looked different, so the newest really changed from it, then back.
+    const replay = (checkpoint: typeof checkpoints[number]) => captureUiHistory(root, store, checkpoint,
+      { ...options, captureMode: 'replayed', sourceDigest: () => checkpoint.digest });
+    await captureUiHistory(root, store, checkpoints[3]!, options);
+    await replay(checkpoints[0]!);
+    scene = { color: [255, 255, 255], dialogColor: [0, 0, 200] };
+    await replay(checkpoints[1]!);
+    scene = { color: [255, 255, 255], dialogColor: [200, 0, 0] };
+    await replay(checkpoints[2]!);
+    const ids = checkpoints.map((checkpoint) => checkpoint.id);
+    assert.deepEqual(store.listScreenFrames(dialog.id, 'mobile').map((frame) => [ids.indexOf(frame.checkpointId), frame.status, frame.unchangedFrom ? ids.indexOf(frame.unchangedFrom) : null]),
+      [[0, 'captured', null], [1, 'captured', null], [2, 'captured', null], [3, 'unchanged', 2]]);
+    assert.deepEqual(store.listComponentVersions('src/ItemDialog.tsx#ItemDialog', 'mobile').map((version) => version.unchangedFrom ? ids.indexOf(version.unchangedFrom) : null),
+      [null, null, null, 2]);
+    assert.deepEqual(store.listComponentVersions('src/App.tsx#App', 'mobile').filter((version) => version.stateId === dialog.id)
+      .map((version) => version.unchangedFrom ? ids.indexOf(version.unchangedFrom) : null), [null, null, null, 2], 'App\'s crop includes the dialog');
+    assert.equal(store.relinkScreenHistory(dialog.id, 'mobile'), 0, 'relinking again changes nothing');
+  } finally {
+    preview.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const instance = (key: string, x: number, y: number, width: number, height: number, occurrence = 0) =>
   ({ key, file: key.split('#')[0]!, component: key.split('#')[1]!, occurrence, box: { x, y, width, height } });
 

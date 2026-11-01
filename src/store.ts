@@ -502,6 +502,52 @@ export class WorkspaceStore {
       AND status IN ('captured', 'unchanged')`).get(checkpointId, stateId, profileId);
   }
 
+  // Dedup at write time compares with the nearest earlier image, so a checkpoint written after a later one (backfill)
+  // leaves identical later images marked as changes. This walks one screen at one breakpoint in checkpoint order and
+  // marks every image identical to the one before it as unchanged from the first of that run; it never alters images.
+  relinkScreenHistory(stateId: string, profileId: string): number {
+    const db = this.database();
+    let updated = 0;
+    const relink = <T extends { checkpointId: string; digest: string; unchangedFrom: string | null }>(rows: T[], write: (row: T, from: string | null) => void, series: (row: T) => string) => {
+      const runs = new Map<string, { digest: string; start: string }>();
+      for (const row of rows) {
+        const key = series(row);
+        const previous = runs.get(key);
+        const from = previous && previous.digest === row.digest ? previous.start : null;
+        if (!from) runs.set(key, { digest: row.digest, start: row.checkpointId });
+        if (from !== row.unchangedFrom) {
+          write(row, from);
+          updated++;
+        }
+      }
+    };
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const frames = db.prepare(`
+        SELECT screen_frames.checkpoint_id AS checkpointId, image_digest AS digest, unchanged_from AS unchangedFrom FROM screen_frames
+        JOIN checkpoints ON checkpoints.id = screen_frames.checkpoint_id
+        WHERE state_id = ? AND profile_id = ? AND image_digest IS NOT NULL ORDER BY checkpoints.rowid`)
+        .all(stateId, profileId) as { checkpointId: string; digest: string; unchangedFrom: string | null }[];
+      const frameUpdate = db.prepare("UPDATE screen_frames SET status = ?, unchanged_from = ? WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ?");
+      relink(frames, (row, from) => frameUpdate.run(from ? "unchanged" : "captured", from, row.checkpointId, stateId, profileId), () => "frame");
+      const versions = db.prepare(`
+        SELECT component_versions.checkpoint_id AS checkpointId, component_key AS componentKey, occurrence, crop_digest AS digest,
+          unchanged_from AS unchangedFrom FROM component_versions
+        JOIN checkpoints ON checkpoints.id = component_versions.checkpoint_id
+        WHERE state_id = ? AND profile_id = ? ORDER BY checkpoints.rowid`)
+        .all(stateId, profileId) as { checkpointId: string; componentKey: string; occurrence: number; digest: string; unchangedFrom: string | null }[];
+      const versionUpdate = db.prepare(`UPDATE component_versions SET unchanged_from = ?
+        WHERE checkpoint_id = ? AND state_id = ? AND profile_id = ? AND component_key = ? AND occurrence = ?`);
+      relink(versions, (row, from) => versionUpdate.run(from, row.checkpointId, stateId, profileId, row.componentKey, row.occurrence),
+        (row) => `${row.componentKey}#${row.occurrence}`);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return updated;
+  }
+
   // The latest frame with an image from a checkpoint before the given one, for deduplication.
   previousFrameImage(checkpointId: string, stateId: string, profileId: string): { checkpointId: string; imageDigest: string; unchangedFrom?: string } | undefined {
     const row = this.database().prepare(`

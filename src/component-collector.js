@@ -61,13 +61,17 @@
     left: Math.min(a.left, b.left), top: Math.min(a.top, b.top),
     right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom),
   };
-  // An empty fixed element over the whole viewport is a sheet or dialog backdrop: it shows the page behind it,
-  // so it is left out of the component's box unless the component draws nothing else.
+  // A fixed element over the whole viewport that is empty (a sheet or dialog backdrop) or transparent (a layer that
+  // only positions a panel) shows the page behind it, so it is left out of the component's box unless the component
+  // draws nothing else. The panel inside still counts; an overlay with its own background keeps the whole viewport.
   const isBackdrop = (node, rect) => {
     if (rect.left > 0 || rect.top > 0 || rect.right < viewportWidth || rect.bottom < viewportHeight) return false;
-    if (node.childElementCount > 0 || (node.textContent ?? '').trim()) return false;
-    const position = typeof getComputedStyle === 'function' ? getComputedStyle(node).position : node.style?.position;
-    return position === 'fixed';
+    const style = (typeof getComputedStyle === 'function' ? getComputedStyle(node) : node.style) ?? {};
+    if (style.position !== 'fixed') return false;
+    if (!node.childElementCount && !(node.textContent ?? '').trim()) return true;
+    const background = style.backgroundColor ?? '';
+    const clear = !background || background === 'transparent' || /^rgba\(.*,\s*0\)$/.test(background);
+    return clear && (!style.backgroundImage || style.backgroundImage === 'none');
   };
   const visit = (fiber) => {
     // Reserve the slot before children so components stay in document (pre-)order.
