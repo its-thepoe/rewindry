@@ -3,11 +3,14 @@ import { join, relative, sep } from 'node:path';
 import { watch, type FSWatcher } from 'chokidar';
 
 const IGNORED_DIRS = new Set(['.rewindry', '.git', 'node_modules', 'dist', 'build', 'coverage']);
+// A burst of events (a checkout, a build, a new worktree) becomes one full rescan, not one per file.
+const EVENT_RESCAN_MS = 100;
 
 export class WorkspaceObserver {
   private watcher?: FSWatcher;
   private readonly root: string;
   private rescanTimer?: NodeJS.Timeout;
+  private eventTimer?: NodeJS.Timeout;
   private lastDigest?: string;
   readonly diagnostics: string[] = [];
 
@@ -36,8 +39,13 @@ export class WorkspaceObserver {
     this.watcher = watcher;
     watcher.on('all', (event) => {
       if (event === 'add' || event === 'change' || event === 'unlink') {
-        if (this.options.digest) this.rescan();
-        else this.onWrite();
+        if (!this.options.digest) this.onWrite();
+        else if (!this.eventTimer) {
+          this.eventTimer = setTimeout(() => {
+            this.eventTimer = undefined;
+            this.rescan();
+          }, EVENT_RESCAN_MS);
+        }
       }
     });
     watcher.on('error', (error) => {
@@ -57,7 +65,9 @@ export class WorkspaceObserver {
 
   async close(): Promise<void> {
     if (this.rescanTimer) clearInterval(this.rescanTimer);
+    if (this.eventTimer) clearTimeout(this.eventTimer);
     this.rescanTimer = undefined;
+    this.eventTimer = undefined;
     const watcher = this.watcher;
     this.watcher = undefined;
     await watcher?.close();

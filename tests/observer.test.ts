@@ -94,3 +94,33 @@ test('watcher errors immediately reconcile missed writes and retain a degraded d
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a burst of file events is reconciled by a few rescans, not one per file', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'rewindry-burst-'));
+  mkdirSync(join(root, 'src'));
+  let scans = 0;
+  let changes = 0;
+  const observer = new WorkspaceObserver(root, () => { changes++; }, {
+    digest: () => { scans++; return `tree-${Date.now()}`; },
+    rescanIntervalMs: 60_000,
+  });
+  try {
+    await observer.start();
+    const before = scans;
+    for (let index = 0; index < 200; index++) writeFileSync(join(root, 'src', `file-${index}.ts`), String(index));
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 3_000;
+      const poll = () => {
+        if (changes > 0) return resolve();
+        if (Date.now() > deadline) return reject(new Error('burst was not observed'));
+        setTimeout(poll, 25);
+      };
+      poll();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.ok(scans - before < 20, `expected a few rescans, got ${scans - before}`);
+  } finally {
+    await observer.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

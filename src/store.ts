@@ -152,6 +152,8 @@ export class WorkspaceStore {
   private include = DEFAULT_INCLUDE;
   private exclude = DEFAULT_EXCLUDE;
   private maxFileBytes = MAX_FILE_BYTES;
+  // Patterns are fixed after construction; compiling every glob for every path on each scan dominated rescans.
+  private readonly eligibility = new Map<string, boolean>();
   private maxSourceBytes = MAX_SOURCE_BYTES;
 
   constructor(root: string) {
@@ -736,9 +738,13 @@ export class WorkspaceStore {
   }
 
   private eligible(path: string): boolean {
-    if (isPrivatePath(path)) return false;
-    if (this.exclude.some((pattern) => matchesGlob(path, pattern))) return false;
-    return this.include.some((pattern) => matchesGlob(path, pattern));
+    const known = this.eligibility.get(path);
+    if (known !== undefined) return known;
+    const eligible = !isPrivatePath(path) && !this.exclude.some((pattern) => matchesGlob(path, pattern)) &&
+      this.include.some((pattern) => matchesGlob(path, pattern));
+    if (this.eligibility.size >= 200_000) this.eligibility.clear();
+    this.eligibility.set(path, eligible);
+    return eligible;
   }
 
   private scan(): CapturedFile[] {
